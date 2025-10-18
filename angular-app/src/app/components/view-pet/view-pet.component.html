@@ -1,0 +1,46 @@
+<h2>List of Pets</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Species</th>
+            <th>Breed</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr *ngFor="let pet of pets">
+            <td>{{ pet.name }}</td>
+            <td>{{ pet.species }}</td>
+            <td>{{ pet.breed }}</td>
+            <td><button (click)="openEditPopup(pet)" class="edit-btn">Edit</button></td>
+            <td><button (click)="openDeletePopup(pet)" class="delete-btn">Delete</button></td>
+        </tr>
+    </tbody>
+</table>
+ 
+<!-- Edit Confirmation Popup -->
+<div *ngIf="showEditPopup" class="popup-overlay">
+    <div class="popup-content">
+        <h3>Confirm Edit</h3>
+        <p>Are you sure you want to Edit?</p>
+        <div class="popup-actions">
+            <button (click)="editPet()" class="confirm-btn">Yes</button>
+            <button (click)="showEditPopup = false" class="cancel-btn">No</button>
+        </div>
+    </div>
+</div>
+ 
+<!-- Delete Confirmation Popup -->
+<div *ngIf="showDeletePopup" class="popup-overlay">
+    <div class="popup-content">
+        <h3>Confirm Delete</h3>
+        <p>Are you sure you want to Delete?</p>
+        <div class="popup-actions">
+            <button (click)="deletePet()" class="confirm-btn">Yes</button>
+            <button (click)="showDeletePopup = false" class="cancel-btn">No</button>
+        </div>
+    </div>
+</div>
+ 
+

@@ -1,0 +1,32 @@
+<div class="add-appointment-container">
+  <h2>{{ isUpdateMode ? 'Update Appointment' : 'Add Appointment' }}</h2>
+  <form [formGroup]="addAppointmentForm" (ngSubmit)="onSubmit()">
+    <div>
+      <label for="appointmentDate">Appointment Date</label>
+      <input id="appointmentDate" formControlName="appointmentDate" type="datetime-local" />
+      <div *ngIf="addAppointmentForm.get('appointmentDate').invalid && addAppointmentForm.get('appointmentDate').touched">
+        Appointment date is required.
+      </div>
+    </div>
+ 
+    <div>
+      <label for="reason">Reason</label>
+      <input id="reason" formControlName="reason" type="text" />
+      <div *ngIf="addAppointmentForm.get('reason').invalid && addAppointmentForm.get('reason').touched">
+        Reason is required and must be at least 10 characters long.
+      </div>
+    </div>
+ 
+    <div>
+      <label for="petId">Select Pet</label>
+      <select id="petId" formControlName="petId">
+        <option *ngFor="let pet of pets" [value]="pet.petId">{{ pet.name }}</option>
+      </select>
+      <div *ngIf="addAppointmentForm.get('petId').invalid && addAppointmentForm.get('petId').touched">
+        Pet is required.
+      </div>
+    </div>
+ 
+    <button type="submit" [disabled]="addAppointmentForm.invalid">{{ isUpdateMode ? 'Update Appointment' : 'Add Appointment' }}</button>
+  </form>
+</div>

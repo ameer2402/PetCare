@@ -1,0 +1,59 @@
+.registration-container {
+    width: 400px; /* Increased width for more space */
+    margin: 0 auto;
+    padding: 30px; /* Increased padding for better spacing */
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    background-color: #fff;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.registration-container h2 {
+    text-align: center;
+    color: green;
+    margin-bottom: 30px; /* Increased margin */
+}
+
+.registration-container label {
+    display: block;
+    margin-bottom: 10px; /* Increased margin for better spacing */
+    margin-top: 15px; /* Added margin to increase space between label and field */
+    font-weight: bold;
+}
+
+.registration-container .required {
+    color: red;
+}
+
+.registration-container input,
+.registration-container select {
+    width: calc(100% - 20px); /* Adjusted width to match padding */
+    padding: 10px; /* Increased padding for better spacing */
+    margin-bottom: 15px; /* Increased margin for better spacing */
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    padding-left: 20px; /* Added padding for space */
+}
+
+.registration-container small {
+    color: red;
+    display: block;
+    margin-top: -10px;
+    margin-bottom: 15px; /* Increased margin for better spacing */
+}
+
+.registration-container button {
+    width: calc(100% - 20px); /* Adjusted width to match padding */
+    padding: 12px; /* Increased padding for better spacing */
+    background-color: #007bff; /* Changed background color for better visibility */
+    color: white; /* Changed text color for better visibility */
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    margin: 10px 0; /* Added margin to space out the button */
+}
+
+.registration-container button:disabled {
+    background-color: #eee;
+    cursor: not-allowed;
+}

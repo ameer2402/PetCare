@@ -1,0 +1,25 @@
+
+<h2>Your Appointments</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Pet Name</th>
+      <th>Appointment Date</th>
+      <th>Reason</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr *ngFor="let appointment of appointments">
+      <td data-label="Pet Name">{{ appointment.pet.name}}</td>
+      <td data-label="Appointment Date">{{ appointment.appointmentDate }}</td>
+      <td data-label="Reason">{{ appointment.reason }}</td>
+      <td data-label="Status">{{ appointment.status }}</td>
+      <td data-label="Actions">
+        <button (click)="editAppointment(appointment)" class="edit-btn">Edit</button>
+        <button (click)="deleteAppointment(appointment.appointmentId)" class="delete-btn">Delete</button>
+      </td>
+    </tr>
+  </tbody>
+</table>

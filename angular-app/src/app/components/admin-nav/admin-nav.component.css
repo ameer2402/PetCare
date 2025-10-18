@@ -1,0 +1,44 @@
+/* Basic reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+ 
+  /* Container styling */
+  nav {
+    background-color: #333; /* Navbar background color */
+    padding: 8px 0; /* Adjusted padding for a more compact size */
+    color: white;
+    font-family: Arial, sans-serif;
+  }
+ 
+  /* Main navigation list */
+  nav ul {
+    list-style-type: none; /* Remove default list styling */
+    display: flex; /* Use flexbox for layout */
+    gap: 1rem; /* Space between items */
+    justify-content: space-around;
+    align-items: center;
+    margin: 0;
+  }
+ 
+  /* List items */
+  nav ul li {
+    position: relative; /* Position for future dropdowns */
+  }
+ 
+  /* Links */
+  nav ul li a {
+    text-decoration: none; /* Remove underline */
+    color: #007bff; /* Link color */
+    padding: 8px 12px; /* Adjusted padding for links */
+    border-radius: 4px; /* Rounded corners for links */
+  }
+ 
+  /* Hover effects for links */
+  nav ul li a:hover {
+    /* text-decoration: underline; */
+    background-color: #575757;
+    color: white;
+  }

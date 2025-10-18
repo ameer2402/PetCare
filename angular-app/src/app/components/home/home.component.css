@@ -1,0 +1,65 @@
+body {
+  font-family: 'Arial', sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f9f9f9;
+}
+
+.app-navbar {
+  background-color: #007bff;
+  padding: 1rem;
+  color: white;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.home-container {
+  max-width: 900px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background-color: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  text-align: center; /* Center align the content */
+}
+
+.home-container h1 {
+  color: #333;
+  margin-bottom: 1.5rem;
+  animation: fadeIn 2s ease-in-out; /* Add animation */
+}
+
+.home-container p {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #555;
+  margin: 0 auto 1.5rem auto; /* Center align */
+  max-width: 80%; /* Restrict width for better readability */
+  text-align: justify; /* Justify text for proper alignment */
+  animation: slideUp 1.5s ease-in-out; /* Add animation */
+}
+
+@media (max-width: 600px) {
+  .home-container {
+      padding: 1rem;
+  }
+
+  .home-container h1 {
+      font-size: 1.5rem;
+  }
+
+  .home-container p {
+      font-size: 0.875rem;
+  }
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes slideUp {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}

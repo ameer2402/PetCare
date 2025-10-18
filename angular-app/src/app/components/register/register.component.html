@@ -1,0 +1,67 @@
+<div class="registration-container">
+    <h2>Registration</h2>
+    <form [formGroup]="registrationForm" (ngSubmit)="register()">
+      <div>
+        <label for="username">Username <span class="required">*</span></label>
+        <input id="username" formControlName="username" type="text">
+        <div *ngIf="registrationForm.get('username')?.invalid && registrationForm.get('username')?.touched">
+          <small>*Username is required</small>
+        </div>
+      </div>
+  
+      <div>
+        <label for="email">Email <span class="required">*</span></label>
+        <input id="email" formControlName="email" type="email">
+        <div *ngIf="registrationForm.get('email')?.invalid && registrationForm.get('email')?.touched">
+          <small>*Email is required</small>
+          <small *ngIf="registrationForm.get('email')?.invalid">* Invalid email format</small>
+        </div>
+      </div>
+  
+      <div>
+        <label for="password">Password <span class="required">*</span></label>
+        <input id="password" formControlName="password" type="password">
+        <div *ngIf="registrationForm.get('password')?.invalid && registrationForm.get('password')?.touched">
+          <small>*Password is required</small>
+          <small *ngIf="registrationForm.get('password')?.invalid">
+            *Password must be at least 8 characters long and contain an uppercase letter, a lowercase letter, a number, and a special character.
+          </small>
+        </div>
+      </div>
+  
+      <div>
+        <label for="confirmPassword">Confirm Password <span class="required">*</span></label>
+        <input id="confirmPassword" formControlName="confirmPassword" type="password">
+        <div *ngIf="registrationForm.hasError('mismatch') && registrationForm.get('confirmPassword')?.touched">
+          <small>*Passwords do not match</small>
+        </div>
+      </div>
+  
+      <div>
+        <label for="mobileNumber">Mobile Number <span class="required">*</span></label>
+        <input id="mobileNumber" formControlName="mobileNumber" type="number">
+        <div *ngIf="registrationForm.get('mobileNumber')?.invalid && registrationForm.get('mobileNumber')?.touched">
+          <small>*Mobile number is required</small>
+          <small *ngIf="registrationForm.get('mobileNumber')?.errors?.pattern">*Invalid mobile number format</small>
+        </div>
+      </div>
+      
+      <div>
+        <label for="userRole">Role <span class="required">*</span></label>
+        <select id="userRole" formControlName="userRole">
+          <option value="">Select Role</option>
+          <option value="ADMIN">Admin</option>
+          <option value="PETOWNER">Pet Owner</option>
+        </select>
+        <div *ngIf="registrationForm.get('userRole')?.invalid && registrationForm.get('userRole')?.touched">
+          <small>*Role is required</small>
+        </div>
+      </div>
+  
+      <button type="submit" [disabled]="registrationForm.invalid">Register</button>
+  
+      <!-- <div *ngIf="errorMessage">
+        <small class="error">{{ errorMessage }}</small>
+      </div> -->
+    </form>
+  </div>

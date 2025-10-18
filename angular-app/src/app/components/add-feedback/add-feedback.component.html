@@ -1,0 +1,29 @@
+<body>
+<form [formGroup]="feedbackForm" (ngSubmit)="addFeedback()">
+   
+    <table class="feedback-table" id="feedbackTable">
+        <th>
+            <h2>Add Feedback</h2>
+        </th> 
+        <tr>
+            <td><label for="message">Feedback Message:</label></td>
+            <td>
+                <textarea formControlName="message" required></textarea>
+                <div *ngIf="feedbackForm.get('message').invalid && feedbackForm.get('message').touched">
+                    <small *ngIf="feedbackForm.get('message').errors?.required">Message must be at least 10 characters long.</small>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td><label for="rating">Rating (1-5):</label></td>
+            <td><input type="text" formControlName="rating" required /></td>
+            <div *ngIf="feedbackForm.get('rating').invalid && feedbackForm.get('rating').touched">
+                <small *ngIf="feedbackForm.get('rating').errors?.min || feedbackForm.get('rating').errors?.max">Rating must be in the range of 1 to 5.</small>
+            </div>
+        </tr>
+        <tr>
+            <td colspan="2"><button type="submit" [disabled]="!feedbackForm.valid">Submit Feedback</button></td>
+        </tr>
+    </table>
+</form>
+</body>

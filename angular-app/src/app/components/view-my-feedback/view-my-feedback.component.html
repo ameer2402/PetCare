@@ -1,0 +1,15 @@
+<h2>My Feedback Records</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Message</th>
+      <th>Rating</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr *ngFor="let feedback of feedbacks">
+      <td>{{ feedback.message }}</td>
+      <td>{{ feedback.rating }}</td>
+    </tr>
+  </tbody>
+</table>

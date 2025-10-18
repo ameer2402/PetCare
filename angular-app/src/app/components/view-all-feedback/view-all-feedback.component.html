@@ -1,0 +1,31 @@
+<h2>My Feedback Records</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Pet Owner</th>
+            <th>Pet Name</th>
+            <th>Message</th>
+            <th>Rating</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr *ngFor="let feeds of feedback">
+            <td>{{feeds.user.username}}</td>
+            <td>{{feeds.appointment.pet.name}}</td>
+            <td>{{feeds.message}}</td>
+            <td>{{feeds.rating}}</td>
+        </tr>
+        <!-- <tr>
+            <td>Sow</td>
+            <td>Simba</td>
+            <td>That was a Great Service</td>
+            <td>4</td>
+        </tr>
+        <tr>
+            <td>Pooji</td>
+            <td>Snopy</td>
+            <td>That was a Great Service awesome</td>
+            <td>5</td>
+        </tr> -->
+    </tbody>
+</table>

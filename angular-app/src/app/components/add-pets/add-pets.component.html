@@ -1,0 +1,77 @@
+
+<form [formGroup]="petForm" (ngSubmit)="addPet()">
+  <table>
+    <tr><h2>{{isEditing ? 'Edit Pet' : 'Add New Pet'}}</h2></tr>
+    <tr>
+      <td><label for="name">Name:</label></td>
+      <td>
+        <input type="text" formControlName="name" placeholder="Enter your pet name" id="name" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('name').invalid && petForm.get('name').touched">
+          <span *ngIf="petForm.get('name').errors.required">Name is required.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td><label for="species">Species:</label></td>
+      <td>
+        <input type="text" formControlName="species" placeholder="Enter Species" id="species" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('species').invalid && petForm.get('species').touched">
+          <span *ngIf="petForm.get('species').errors.required">Species is required.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td><label for="breed">Breed:</label></td>
+      <td>
+        <input type="text" formControlName="breed" placeholder="Enter Breed" id="breed" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('breed').invalid && petForm.get('breed').touched">
+          <span *ngIf="petForm.get('breed').errors.required">Breed is required.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td><label for="dateOfBirth">Date Of Birth:</label></td>
+      <td>
+        <input type="date" formControlName="dateOfBirth" placeholder="Enter Date Of Birth" id="dateOfBirth" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('dateOfBirth').invalid && petForm.get('dateOfBirth').touched">
+          <span *ngIf="petForm.get('dateOfBirth').errors.required">Date of Birth is required.</span>
+          <span *ngIf="petForm.get('dateOfBirth').errors.futureDate">Date of Birth cannot be in the future.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td><label for="healthStatus">Health Status:</label></td>
+      <td>
+        <input type="text" formControlName="status" placeholder="Enter Health Status" id="healthStatus" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('status').invalid && petForm.get('status').touched">
+          <span *ngIf="petForm.get('status').errors.required">Health Status is required.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="2" style="text-align: center;">
+        <button type="submit">{{isEditing ? 'Edit Pet' : 'Add Pet'}}</button>
+      </td>
+    </tr>
+  </table>
+</form>
