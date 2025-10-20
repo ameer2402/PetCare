@@ -1,0 +1,3363 @@
+components
+
+add-appointment.html
+
+<div class="add-appointment-container">
+  <h2>{{ isUpdateMode ? 'Update Appointment' : 'Add Appointment' }}</h2>
+  <form [formGroup]="addAppointmentForm" (ngSubmit)="onSubmit()">
+    <div>
+      <label for="appointmentDate">Appointment Date</label>
+      <input id="appointmentDate" formControlName="appointmentDate" type="datetime-local" />
+      <div *ngIf="addAppointmentForm.get('appointmentDate').invalid && addAppointmentForm.get('appointmentDate').touched">
+        Appointment date is required.
+      </div>
+    </div>
+ 
+    <div>
+      <label for="reason">Reason</label>
+      <input id="reason" formControlName="reason" type="text" />
+      <div *ngIf="addAppointmentForm.get('reason').invalid && addAppointmentForm.get('reason').touched">
+        Reason is required and must be at least 10 characters long.
+      </div>
+    </div>
+ 
+    <div>
+      <label for="petId">Select Pet</label>
+      <select id="petId" formControlName="petId">
+        <option *ngFor="let pet of pets" [value]="pet.petId">{{ pet.name }}</option>
+      </select>
+      <div *ngIf="addAppointmentForm.get('petId').invalid && addAppointmentForm.get('petId').touched">
+        Pet is required.
+      </div>
+    </div>
+ 
+    <button type="submit" [disabled]="addAppointmentForm.invalid">{{ isUpdateMode ? 'Update Appointment' : 'Add Appointment' }}</button>
+  </form>
+</div>
+-------------
+
+add appointemnts.css
+
+.add-appointment-container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 2rem;
+  background-color: #f5f5f5;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  font-family: Arial, sans-serif;
+}
+ 
+.add-appointment-container h2 {
+  text-align: center;
+  color: #333;
+}
+ 
+form div {
+  margin-bottom: 1.5rem;
+}
+ 
+label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+ 
+input[type="text"],
+input[type="datetime-local"],
+select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  box-sizing: border-box;
+}
+ 
+input[type="text"]:focus,
+input[type="datetime-local"]:focus,
+select:focus {
+  border-color: #007bff;
+  outline: none;
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+}
+ 
+button[type="submit"] {
+  display: block;
+  width: 100%;
+  padding: 0.75rem;
+  background-color: #007bff;
+  border: none;
+  color: #fff;
+  border-radius: 5px;
+  font-weight: bold;
+  cursor: pointer;
+}
+ 
+button[type="submit"]:disabled {
+  background-color: #ddd;
+  cursor: not-allowed;
+}
+ 
+button[type="submit"]:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+ 
+-------------------
+add appointment.ts
+
+import { Component, OnInit } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router'; // Import ActivatedRoute and Router
+import { Appointment } from 'src/app/models/appointment.model';
+import { AppointmentService } from 'src/app/services/appointment.service';
+import { Pet } from 'src/app/models/pet.model';
+import { PetService } from 'src/app/services/pet.service';
+import { UserStoreService } from 'src/app/helpers/user-store.service';
+ 
+@Component({
+  selector: 'app-add-appointment',
+  templateUrl: './add-appointment.component.html',
+  styleUrls: ['./add-appointment.component.css']
+})
+export class AddAppointmentComponent implements OnInit {
+ 
+  addAppointmentForm: FormGroup;
+  petId: number;
+  pets: Pet[] = [];
+  userId: number;
+  appointmentId: number;
+  isUpdateMode: boolean = false;
+ 
+  constructor(
+    private readonly fb: FormBuilder,
+    private readonly router: Router,
+    private readonly route: ActivatedRoute, // Add ActivatedRoute in the constructor
+    private readonly appointmentService: AppointmentService,
+    private readonly petService: PetService,
+    private readonly userStorageService: UserStoreService
+  ) {}
+ 
+  ngOnInit(): void {
+    // Get the logged-in user's ID from userStorageService
+    const user = JSON.parse(localStorage.getItem('authUser'));
+    this.userId = user?.userId;
+ 
+    // Initialize the form with form controls and validators
+    this.addAppointmentForm = this.fb.group({
+      appointmentDate: ['', Validators.required],
+      reason: ['', [Validators.required, Validators.minLength(10)]],
+      petId: ['', Validators.required],
+    });
+ 
+    // Load the pets for the logged-in user
+    this.loadPets();
+ 
+    // Check if the route contains an appointmentId
+    this.route.params.subscribe(params => {
+      this.appointmentId = +params['appointmentId'];
+      if (this.appointmentId) {
+        this.isUpdateMode = true;
+        this.loadAppointment();
+      }
+    });
+  }
+ 
+  /**
+   * Load the pets registered by the logged-in user.
+   */
+  loadPets(): void {
+    this.petService.getPetsByUserId(this.userId).subscribe(
+      pets => {
+        this.pets = pets;
+      },
+      error => {
+        console.error('Error loading pets', error);
+      }
+    );
+  }
+ 
+  /**
+   * Load the appointment for updating.
+   */
+  loadAppointment(): void {
+    this.appointmentService.getAppointmentById(this.appointmentId).subscribe(
+      appointment => {
+        this.addAppointmentForm.patchValue(appointment);
+      },
+      error => {
+        console.error('Error loading appointment', error);
+      }
+    );
+  }
+ 
+  /**
+   * Submit the form to add or update an appointment.
+   */
+  onSubmit(): void {
+    if (this.addAppointmentForm.valid) {
+      // Create a new appointment object with the desired format
+      const appointmentData = {
+        appointmentDate: this.addAppointmentForm.value.appointmentDate,
+        reason: this.addAppointmentForm.value.reason,
+        user: {
+          userId: this.userId
+        },
+        pet: {
+          petId: this.addAppointmentForm.value.petId
+        },
+        status: 'PENDING' // Set status as PENDING
+      };
+ 
+      if (this.isUpdateMode) {
+        this.appointmentService.updateAppointment(this.appointmentId, appointmentData).subscribe(
+          response => {
+            // Show success alert on successful update of appointment
+            alert('Appointment updated successfully!');
+            // Navigate to the view-appointments page
+            this.router.navigate(['/viewappointments']);
+          },
+          error => {
+            // Show error alert if there was an issue updating the appointment
+            alert('Error updating appointment: ' + error.message);
+          }
+        );
+      } else {
+        this.appointmentService.addAppointment(appointmentData).subscribe(
+          response => {
+            // Show success alert on successful addition of appointment
+            alert('Appointment added successfully!');
+            // Navigate to the view-appointments page
+            this.router.navigate(['/viewappointments']);
+          },
+          error => {
+            // Show error alert if there was an issue adding the appointment
+            alert('Error adding appointment: ' + error.message);
+          }
+        );
+      }
+    } else {
+      // Show alert if the form is invalid
+      alert('Form is invalid');
+    }
+  }
+}
+--------------------
+
+add-feedback.html
+
+<body>
+<form [formGroup]="feedbackForm" (ngSubmit)="addFeedback()">
+   
+    <table class="feedback-table" id="feedbackTable">
+        <th>
+            <h2>Add Feedback</h2>
+        </th> 
+        <tr>
+            <td><label for="message">Feedback Message:</label></td>
+            <td>
+                <textarea formControlName="message" required></textarea>
+                <div *ngIf="feedbackForm.get('message').invalid && feedbackForm.get('message').touched">
+                    <small *ngIf="feedbackForm.get('message').errors?.required">Message must be at least 10 characters long.</small>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td><label for="rating">Rating (1-5):</label></td>
+            <td><input type="text" formControlName="rating" required /></td>
+            <div *ngIf="feedbackForm.get('rating').invalid && feedbackForm.get('rating').touched">
+                <small *ngIf="feedbackForm.get('rating').errors?.min || feedbackForm.get('rating').errors?.max">Rating must be in the range of 1 to 5.</small>
+            </div>
+        </tr>
+        <tr>
+            <td colspan="2"><button type="submit" [disabled]="!feedbackForm.valid">Submit Feedback</button></td>
+        </tr>
+    </table>
+</form>
+</body>
+------------------------------
+
+add-feedback.css
+
+* {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.feedback-table {
+    width: 80%; /* Adjust the width as needed */
+    max-width: 600px; /* Ensure it doesn't get too wide */
+    border-collapse: collapse;
+    background-color: #f0f0f0; /* Grey background */
+    padding: 20px;
+    border-radius: 10px;
+    margin-top: 50px; /* Center vertically */   
+}
+
+.feedback-table td {
+    padding: 10px;
+    vertical-align: top;
+}
+
+.feedback-table label {
+    font-weight: bold;
+}
+
+.feedback-table textarea,
+.feedback-table input[type="text"] {
+    width: 100%;
+    padding: 5px;
+    margin-top: 5px;
+    border: 1px solid black;
+    border-radius: 5px;
+}
+.feedback-table textarea{
+    height: 100px;
+}
+
+.feedback-table button {
+    display: inline-block;
+    background-color: #007bff; /* Blue button color */
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    width: fit-content;
+}
+
+.feedback-table button:disabled {
+    background-color: #cccccc; /* Disabled button color */
+    cursor: not-allowed;
+}
+
+.feedback-table small {
+    color: red;
+}
+
+/* Center the form container */
+form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: auto;
+    width: 100%;
+    height: 100vh; /* Full viewport height */
+    justify-content: center; /* Center vertically */
+    overflow: auto;
+}
+------------------
+
+add-feedback.ts
+import { Component, OnInit } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { FeedbackService } from 'src/app/services/feedback.service';
+
+@Component({
+  selector: 'app-add-feedback',
+  templateUrl: './add-feedback.component.html',
+  styleUrls: ['./add-feedback.component.css']
+})
+export class AddFeedbackComponent implements OnInit {
+
+  feedbackForm: FormGroup;
+
+  constructor(
+    private readonly feedbackService: FeedbackService,
+    private readonly formBuilder: FormBuilder,
+    private readonly router: Router
+  ) {}
+
+  ngOnInit(): void {
+    this.feedbackForm = this.formBuilder.group({
+      message: ['', [Validators.required, Validators.maxLength(200)]],
+      rating: ['', [Validators.required, Validators.max(5), Validators.min(1)]]
+    });
+  }
+
+  addFeedback(): void {
+    if (this.feedbackForm.valid) {
+      const authUser = JSON.parse(localStorage.getItem('authUser'));
+      const userId = authUser?.userId;
+      const appointmentIdStr = localStorage.getItem('currentAppointmentId');
+      const appointmentId = appointmentIdStr ? parseInt(appointmentIdStr, 10) : null; // Ensure appointmentId is an integer
+
+      if (appointmentId === null || isNaN(appointmentId)) {
+        console.error('Invalid appointment ID');
+        return;
+      }
+
+      const feedbackData = {
+        ...this.feedbackForm.value,
+        user: { userId: userId },
+        appointment: { appointmentId: appointmentId }
+      };
+
+      console.log(feedbackData);
+      
+      this.feedbackService.createFeedback(feedbackData).subscribe(() => {
+        // Clear the appointmentId from localStorage
+        localStorage.removeItem('currentAppointmentId');
+        
+        // Navigate to feedback list
+        this.router.navigate(['/viewmyfeedback']);
+      });
+    }
+  }
+}
+-------------
+add-pet.css
+
+/* Center the table on the page */
+table {
+    margin: 0 auto;
+    border-collapse: collapse;
+    background-color: #f1f1f1;
+    border-radius: 15px;
+}
+
+/* Style the heading */
+h2 {
+    text-align: left;
+    margin-left: 10px;
+}
+
+/* Style the submit button */
+button[type="submit"] {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 8px 16px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* Align the text to the start */
+td {
+    text-align: left;
+    vertical-align: top;
+    padding: 4px;
+    margin: 6px;
+    margin-left: 10px;
+    margin-right: 10px;
+}
+
+/* Arrange label and input in column format */
+tr {
+    display: flex;
+    flex-direction: column;
+}
+
+label {
+    display: block;
+    margin-bottom: -10px;
+}
+
+input[type="text"],
+input[type="date"] {
+    display: block;
+    width: 350px;
+    padding: 8px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.error-message {
+    color: red;
+    margin-left: 15px;
+    padding-bottom: 10px;
+    margin-top: -20px;
+}
+---------
+add pets.html
+
+<form [formGroup]="petForm" (ngSubmit)="addPet()">
+  <table>
+    <tr><h2>{{isEditing ? 'Edit Pet' : 'Add New Pet'}}</h2></tr>
+    <tr>
+      <td><label for="name">Name:</label></td>
+      <td>
+        <input type="text" formControlName="name" placeholder="Enter your pet name" id="name" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('name').invalid && petForm.get('name').touched">
+          <span *ngIf="petForm.get('name').errors.required">Name is required.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td><label for="species">Species:</label></td>
+      <td>
+        <input type="text" formControlName="species" placeholder="Enter Species" id="species" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('species').invalid && petForm.get('species').touched">
+          <span *ngIf="petForm.get('species').errors.required">Species is required.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td><label for="breed">Breed:</label></td>
+      <td>
+        <input type="text" formControlName="breed" placeholder="Enter Breed" id="breed" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('breed').invalid && petForm.get('breed').touched">
+          <span *ngIf="petForm.get('breed').errors.required">Breed is required.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td><label for="dateOfBirth">Date Of Birth:</label></td>
+      <td>
+        <input type="date" formControlName="dateOfBirth" placeholder="Enter Date Of Birth" id="dateOfBirth" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('dateOfBirth').invalid && petForm.get('dateOfBirth').touched">
+          <span *ngIf="petForm.get('dateOfBirth').errors.required">Date of Birth is required.</span>
+          <span *ngIf="petForm.get('dateOfBirth').errors.futureDate">Date of Birth cannot be in the future.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td><label for="healthStatus">Health Status:</label></td>
+      <td>
+        <input type="text" formControlName="status" placeholder="Enter Health Status" id="healthStatus" required />
+      </td>
+    </tr>
+    <tr>
+      <td class="error-message" colspan="2">
+        <div *ngIf="petForm.get('status').invalid && petForm.get('status').touched">
+          <span *ngIf="petForm.get('status').errors.required">Health Status is required.</span>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="2" style="text-align: center;">
+        <button type="submit">{{isEditing ? 'Edit Pet' : 'Add Pet'}}</button>
+      </td>
+    </tr>
+  </table>
+</form>
+----------
+add-pets.ts
+
+import { Component, OnInit } from '@angular/core';
+import { AbstractControl, FormBuilder, FormGroup, ValidationErrors, Validators } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
+import { Pet } from 'src/app/models/pet.model';
+import { PetService } from 'src/app/services/pet.service';
+
+@Component({
+  selector: 'app-add-pets',
+  templateUrl: './add-pets.component.html',
+  styleUrls: ['./add-pets.component.css']
+})
+export class AddPetsComponent implements OnInit {
+
+  pet: Pet = {
+    petId: 0,
+    name: '',
+    species: '',
+    breed: '',
+    dateOfBirth: '',
+    userId: 0,
+    status: ''
+  };
+  petForm: FormGroup;
+  isEditing: boolean = false;
+  petId: number | null = null;
+
+  constructor(
+    private petService: PetService,
+    private formBuilder: FormBuilder,
+    private activatedRoute: ActivatedRoute,
+    private router: Router) {
+    this.petForm = this.formBuilder.group({
+      name: ['', Validators.required],
+      species: ['', Validators.required],
+      breed: ['', Validators.required],
+      dateOfBirth: ['', [Validators.required, this.noFutureDate]],
+      user: this.formBuilder.group({
+        userId: ['']
+      }),
+      status: ['', Validators.required]
+    });
+  }
+
+  ngOnInit(): void {
+    const petIdParam = this.activatedRoute.snapshot.paramMap.get('petId');
+    this.petId = petIdParam ? +petIdParam : null;
+    console.log('Pet ID from route:', this.petId);
+
+    if (this.petId) {
+      this.isEditing = true;
+      console.log('Editing Pet ID:', this.petId);
+      this.loadPetData(this.petId);
+    } else {
+      this.setUserIdFromLocalStorage();
+    }
+  }
+
+  loadPetData(petId: number): void {
+    this.petService.findById(petId).subscribe(
+      (pet) => {
+        console.log('Fetched pet data:', pet);
+        this.pet = pet;
+        this.petForm.patchValue({
+          name: pet.name,
+          species: pet.species,
+          breed: pet.breed,
+          dateOfBirth: this.formatDateForInput(pet.dateOfBirth), // Format the date
+          user: {
+            userId: pet.userId
+          },
+          status: pet.status
+        });
+      },
+      (error) => {
+        console.error('Error fetching pet data:', error);
+      }
+    );
+  }
+
+  setUserIdFromLocalStorage(): void {
+    const user = JSON.parse(localStorage.getItem('authUser'));
+    if (user && user.userId) {
+      this.pet.userId = user.userId;
+      this.petForm.patchValue({
+        user: {
+          userId: user.userId
+        }
+      });
+    }
+  }
+
+  noFutureDate(control: AbstractControl): ValidationErrors | null {
+    const currentDate = new Date();
+    const selectedDate = new Date(control.value);
+    if (selectedDate > currentDate) {
+      return { 'futureDate': true };
+    }
+    return null;
+  }
+
+  formatDateForInput(date: any): string {
+    if (!date) {
+      return '';
+    }
+
+    if (Array.isArray(date)) {
+      const [year, month, day] = date;
+      return `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+    }
+
+    const dateTimeString = date.split(' ')[0];
+    const parsedDate = new Date(dateTimeString);
+    const year = parsedDate.getFullYear();
+    const month = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
+    const day = parsedDate.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  formatToLocalDateTime(date: string): string {
+    return `${date}T00:00:00`;
+  }
+
+  addPet(): void {
+    console.log("addpet method");
+    if (this.petForm.valid) {
+      console.log("valid");
+      const formData = {
+        ...this.petForm.value,
+        dateOfBirth: this.formatToLocalDateTime(this.petForm.value.dateOfBirth)
+      };
+
+      console.log('Form Data:', formData);
+
+      if (this.isEditing) {
+        const user = JSON.parse(localStorage.getItem('authUser'));
+        console.log(user);
+        console.log(user.userId);
+
+        this.pet = {
+          ...formData,
+          user:{
+            userId: user.userId
+          }
+        }
+        // console.log("................pet......."+this.pet);
+        
+        this.petService.updatePet(this.petId,this.pet).subscribe(
+          () => {
+            console.log('Pet updated successfully');
+            this.router.navigate(['/viewpet']);
+          },
+          (error) => console.error('Error updating pet:', error)
+        );
+      } else {
+        this.petService.addPet({ ...this.pet, ...formData }).subscribe(
+          () => {
+            console.log('Pet added successfully');
+            this.router.navigate(['/viewpet']);
+          },
+          (error) => console.error('Error adding pet:', error)
+        );
+      }
+    } else {
+      console.log('Form is invalid:', this.petForm.value);
+    }
+  }
+}
+
+--------------------
+admin nav.css
+
+/* Basic reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+ 
+  /* Container styling */
+  nav {
+    background-color: #333; /* Navbar background color */
+    padding: 8px 0; /* Adjusted padding for a more compact size */
+    color: white;
+    font-family: Arial, sans-serif;
+  }
+ 
+  /* Main navigation list */
+  nav ul {
+    list-style-type: none; /* Remove default list styling */
+    display: flex; /* Use flexbox for layout */
+    gap: 1rem; /* Space between items */
+    justify-content: space-around;
+    align-items: center;
+    margin: 0;
+  }
+ 
+  /* List items */
+  nav ul li {
+    position: relative; /* Position for future dropdowns */
+  }
+ 
+  /* Links */
+  nav ul li a {
+    text-decoration: none; /* Remove underline */
+    color: #007bff; /* Link color */
+    padding: 8px 12px; /* Adjusted padding for links */
+    border-radius: 4px; /* Rounded corners for links */
+  }
+ 
+  /* Hover effects for links */
+  nav ul li a:hover {
+    /* text-decoration: underline; */
+    background-color: #575757;
+    color: white;
+  }
+ 
+--------------------
+
+adminnav.html
+
+<nav>
+    <ul>
+      <li><a routerLink="/viewallappointments">Manage Appointments</a></li>
+      <li><a routerLink="/feedbacklist">View Feedback</a></li>
+      <li><a routerLink="/viewallappointmentrecords">Treatment Records</a></li>
+    </ul>
+  </nav>
+---------------
+home .html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <div class="home-container">
+    <h1>PetCare: Your Trusted Companion for Pet Health and Well-being</h1>
+    <p>
+      PetCare is a digital platform dedicated to providing reliable and flexible solutions for pet health and
+      well-being.At the core of the platform is a diverse range of services tailored for pet owners, each enriched with
+      detailed descriptions, competitive pricing, and comprehensive terms and conditions. This wealth of information
+      empowers users to make informed decisions regarding their pets' care, ensuring that the chosen services align
+      seamlessly with their pets' health needs and their personal values. PetCare is designed to support pet owners in
+      their pursuit of providing the best care for their furry companions by offering access to variety of pet-related
+      services specifically curated for optimal health and happiness.
+    </p>
+  </div>
+</body>
+</html>
+
+
+
+---------------
+home.css
+
+body {
+  font-family: 'Arial', sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f9f9f9;
+}
+
+.app-navbar {
+  background-color: #007bff;
+  padding: 1rem;
+  color: white;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.home-container {
+  max-width: 900px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background-color: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  text-align: center; /* Center align the content */
+}
+
+.home-container h1 {
+  color: #333;
+  margin-bottom: 1.5rem;
+  animation: fadeIn 2s ease-in-out; /* Add animation */
+}
+
+.home-container p {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #555;
+  margin: 0 auto 1.5rem auto; /* Center align */
+  max-width: 80%; /* Restrict width for better readability */
+  text-align: justify; /* Justify text for proper alignment */
+  animation: slideUp 1.5s ease-in-out; /* Add animation */
+}
+
+@media (max-width: 600px) {
+  .home-container {
+      padding: 1rem;
+  }
+
+  .home-container h1 {
+      font-size: 1.5rem;
+  }
+
+  .home-container p {
+      font-size: 0.875rem;
+  }
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes slideUp {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+-------------
+login.html
+
+<div class="container">
+    <form [formGroup]="loginForm" (ngSubmit)="login()">
+        <table>
+            <th><h1>Login</h1></th>
+            <tr>
+                <td><label for="username">Email</label></td>
+                <td><input type="email" formControlName="username" required></td>
+                <div *ngIf="f.username.touched && f.username.invalid">
+                    <div *ngIf="f.username.errors?.required" class="error-message">
+                        <small>Email is Required</small>
+                    </div>
+                </div>
+            </tr>
+ 
+            <tr>
+                <td><label for="password">Password</label></td>
+                <td><input type="password" formControlName="password" required></td>
+                <div *ngIf="f.password.touched && f.password.invalid">
+                    <div *ngIf="f.password.errors?.required" class="error-message">
+                        <small>Password is Required</small>
+                    </div>
+                </div>
+            </tr>
+ 
+            <button type="submit" [disabled]="loginForm.invalid">Login</button>
+            <div *ngIf="errorMessage"class="error-message">
+                <small>{{ errorMessage }}</small>
+            </div>
+        </table>
+        <div class="register-link">
+            Don't have an account? <a routerLink="/register">Register here</a>
+        </div>
+    </form>
+</div>
+----------------
+login.css
+.container {
+  width: 90%;
+  max-width: 400px;
+  margin: 50px auto;
+  padding: 20px;
+  background-color: #f8f9fa; /* Grey background */
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* Box shadow */
+  border-radius: 8px;
+  font-family: Arial, sans-serif;
+}
+
+h1 {
+  text-align: center;
+  color: #333;
+}
+
+table {
+  width: 100%;
+  margin: 20px 0;
+  border-collapse: separate;
+  border-spacing: 0 10px; /* Add space between rows */
+}
+
+label {
+  font-weight: bold;
+  color: #555;
+}
+
+input[type="email"], input[type="password"] {
+  width: 100%;
+  padding: 10px;
+  margin-top: 5px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+button[type="submit"] {
+  width: 100%;
+  padding: 10px;
+  background-color: #007bff; /* Blue background for button */
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  margin-top: 10px;
+}
+
+button[type="submit"]:disabled {
+  background-color: #aaa; /* Grey background for disabled button */
+  cursor: not-allowed;
+}
+
+.register-link {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.register-link a {
+  color: #2dac1d; /* Blue link color */
+  text-decoration: none;
+}
+----------------
+
+login.ts
+
+import { Component, OnInit } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { AuthService } from 'src/app/services/auth.service';
+import { UserStoreService } from 'src/app/helpers/user-store.service';
+import  {jwtDecode, JwtPayload } from 'jwt-decode';
+import { Login } from 'src/app/models/login.model';
+import { AuthUser } from 'src/app/models/auth-user';
+
+interface CustomJwtPayload extends JwtPayload {
+  sub: string;
+  email: string;
+  role: string;
+  username: string;
+  userId: number;
+  name: string; // Adding the name to the custom payload
+}
+
+@Component({
+  selector: 'app-login',
+  templateUrl: './login.component.html',
+  styleUrls: ['./login.component.css']
+})
+export class LoginComponent implements OnInit {
+  loginForm: FormGroup;
+  errorMessage: string = '';
+
+  constructor(
+    private fb: FormBuilder,
+    private authService: AuthService,
+    private router: Router,
+    private userStore: UserStoreService
+  ) { }
+
+  ngOnInit(): void {
+    this.loginForm = this.fb.group({
+      username: ['', [Validators.required, Validators.email]],
+      password: ['', Validators.required]
+    });
+  }
+
+  login(): void {
+    if (this.loginForm.valid) {
+      const loginData: Login = {
+        email: this.loginForm.value.username,
+        password: this.loginForm.value.password
+      };
+      console.log("loginData", loginData);
+      this.authService.login(loginData).subscribe({
+        next: (tokenDto: { jwtToken: string }) => {
+          const token = tokenDto.jwtToken;
+          console.log("Received token:", token);
+          this.authService.setToken(token);
+          const user = this.decodeAndStoreToken(token);
+          this.redirectBasedOnRole(user.role);
+        },
+        error: (err) => {
+          this.errorMessage = "Invalid Credentials! Please Try Again.";
+          console.log("Login Error", err);
+        }
+      });
+    }
+  }
+
+  private decodeAndStoreToken(token: string): AuthUser {
+    const decodedToken = jwtDecode<CustomJwtPayload>(token);
+    const user: AuthUser = {
+      userId: decodedToken.userId,
+      userEmail: decodedToken.email,
+      jwtToken: token,
+      role: decodedToken.role,
+      name: decodedToken.name // Storing the name from the token
+    };
+    this.userStore.setUser(user);
+    return user;
+  }
+
+  private redirectBasedOnRole(userRole: string): void {
+    if (userRole === 'ROLE_ADMIN') {
+      this.router.navigate(['/addfeedback']);
+    } else if (userRole === 'ROLE_PETOWNER') {
+      this.router.navigate(['/home']);
+    } else {
+      this.router.navigate(['/home']);
+    }
+  }
+
+  get f() {
+    return this.loginForm.controls;
+  }
+}
+-----------------
+
+navbar.html
+
+<nav class="navbar">
+  <div class="navbar-container">
+      <h1 class="site-title">Pet Care</h1>
+      <ul class="nav-links">
+          <ng-container *ngIf="!isLoggedIn">
+              <li><a routerLink="/register">Register</a></li>
+              <li><a routerLink="/login">Login</a></li>
+          </ng-container>
+          <ng-container *ngIf="isLoggedIn">
+              <li>
+                  <span class="user-info">
+                      ({{username}})-({{userRole}})
+                  </span>
+              </li>
+              <li ><a routerLink="/">Home</a></li>
+              <ng-container *ngIf="userRole === 'ADMIN'">
+                  <app-admin-nav></app-admin-nav>
+              </ng-container>
+              <ng-container *ngIf="userRole === 'PETOWNER'">
+                  <app-user-nav></app-user-nav>
+              </ng-container>
+              <li>
+                  <button (click)="showLogoutPopup = true" class="logout-btn">
+                  Logout
+                  </button>
+              </li>
+          </ng-container>
+      </ul>
+  </div>
+
+  <div *ngIf="showLogoutPopup" class="logout-popup">
+      <div class="popup-contenr">
+          <h3>Confirm Logout</h3>
+          <p>Are you sure you want to logout.</p>
+          <div class="popup-actions">
+              <button (click)="logout()" class="confirm-btn">Yes, Logout</button>
+              <button (click)="showLogoutPopup = false" class="cancel-btn">Cancel</button>
+          </div>
+      </div>
+  </div>
+</nav>
+-----------------
+navbar.css
+
+.navbar{
+  background-color: #333;
+  color: white;
+  padding: 1rem;
+}
+.navbar-container{
+  display: flex;
+  justify-content:space-between;
+  align-items: center;
+}
+.site-title{
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+.nav-links{
+  display: flex;
+  list-style: none;
+  gap: 1rem;
+  align-items: center;
+}
+.nav-links a , .logout-btn{
+  color: white;
+  text-decoration: none;
+  padding: 0.5rem;
+}
+.logout-popup{
+  position: fixed;
+  top:0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.popup-content{
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  text-align: center;
+}
+.popup-actions{
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.logout-btn{
+  background-color: cadetblue;
+}
+ul li a{
+  text-decoration: none;
+  color: #007bff;
+}
+ul li a:hover{
+  text-decoration: underline;
+}
+-----------------
+navbar.ts
+
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Router } from '@angular/router';
+import { UserStoreService } from 'src/app/helpers/user-store.service';
+import { AuthService } from 'src/app/services/auth.service';
+import { Subscription } from 'rxjs';
+
+@Component({
+  selector: 'app-navbar',
+  templateUrl: './navbar.component.html',
+  styleUrls: ['./navbar.component.css']
+})
+export class NavbarComponent implements OnInit, OnDestroy {
+  showLogoutPopup = false;
+  isLoggedIn = false;
+  userRole: string | null = null;
+  username: string = null;
+  
+  private userSubscription: Subscription | null = null;
+
+  constructor(
+    private authService: AuthService,
+    private router: Router,
+    private userStore: UserStoreService
+  ) {}
+
+  ngOnInit(): void {
+    this.updateUserState();
+
+    this.userSubscription = this.userStore.user$.subscribe(() => {
+      this.updateUserState();
+    });
+  }
+
+  private updateUserState(): void {
+    this.isLoggedIn = this.userStore.isLoggedIn();
+    this.username = this.userStore.authUser?.name;
+    this.userRole = this.userStore.authUser?.role || null;
+    console.log(this.userRole);
+  }
+
+  logout(): void {
+    this.authService.logout();
+    this.showLogoutPopup = false;
+    this.router.navigate(['/login']);
+  }
+
+  ngOnDestroy(): void {
+    if (this.userSubscription) {
+      this.userSubscription.unsubscribe();
+    }
+  }
+}
+------------------
+register.html
+
+<div class="registration-container">
+    <h2>Registration</h2>
+    <form [formGroup]="registrationForm" (ngSubmit)="register()">
+      <div>
+        <label for="username">Username <span class="required">*</span></label>
+        <input id="username" formControlName="username" type="text">
+        <div *ngIf="registrationForm.get('username')?.invalid && registrationForm.get('username')?.touched">
+          <small>*Username is required</small>
+        </div>
+      </div>
+  
+      <div>
+        <label for="email">Email <span class="required">*</span></label>
+        <input id="email" formControlName="email" type="email">
+        <div *ngIf="registrationForm.get('email')?.invalid && registrationForm.get('email')?.touched">
+          <small>*Email is required</small>
+          <small *ngIf="registrationForm.get('email')?.invalid">* Invalid email format</small>
+        </div>
+      </div>
+  
+      <div>
+        <label for="password">Password <span class="required">*</span></label>
+        <input id="password" formControlName="password" type="password">
+        <div *ngIf="registrationForm.get('password')?.invalid && registrationForm.get('password')?.touched">
+          <small>*Password is required</small>
+          <small *ngIf="registrationForm.get('password')?.invalid">
+            *Password must be at least 8 characters long and contain an uppercase letter, a lowercase letter, a number, and a special character.
+          </small>
+        </div>
+      </div>
+  
+      <div>
+        <label for="confirmPassword">Confirm Password <span class="required">*</span></label>
+        <input id="confirmPassword" formControlName="confirmPassword" type="password">
+        <div *ngIf="registrationForm.hasError('mismatch') && registrationForm.get('confirmPassword')?.touched">
+          <small>*Passwords do not match</small>
+        </div>
+      </div>
+  
+      <div>
+        <label for="mobileNumber">Mobile Number <span class="required">*</span></label>
+        <input id="mobileNumber" formControlName="mobileNumber" type="number">
+        <div *ngIf="registrationForm.get('mobileNumber')?.invalid && registrationForm.get('mobileNumber')?.touched">
+          <small>*Mobile number is required</small>
+          <small *ngIf="registrationForm.get('mobileNumber')?.errors?.pattern">*Invalid mobile number format</small>
+        </div>
+      </div>
+      
+      <div>
+        <label for="userRole">Role <span class="required">*</span></label>
+        <select id="userRole" formControlName="userRole">
+          <option value="">Select Role</option>
+          <option value="ADMIN">Admin</option>
+          <option value="PETOWNER">Pet Owner</option>
+        </select>
+        <div *ngIf="registrationForm.get('userRole')?.invalid && registrationForm.get('userRole')?.touched">
+          <small>*Role is required</small>
+        </div>
+      </div>
+  
+      <button type="submit" [disabled]="registrationForm.invalid">Register</button>
+  
+      <!-- <div *ngIf="errorMessage">
+        <small class="error">{{ errorMessage }}</small>
+      </div> -->
+    </form>
+  </div>
+  ------------------
+register.css
+
+.registration-container {
+    width: 400px; /* Increased width for more space */
+    margin: 0 auto;
+    padding: 30px; /* Increased padding for better spacing */
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    background-color: #fff;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.registration-container h2 {
+    text-align: center;
+    color: green;
+    margin-bottom: 30px; /* Increased margin */
+}
+
+.registration-container label {
+    display: block;
+    margin-bottom: 10px; /* Increased margin for better spacing */
+    margin-top: 15px; /* Added margin to increase space between label and field */
+    font-weight: bold;
+}
+
+.registration-container .required {
+    color: red;
+}
+
+.registration-container input,
+.registration-container select {
+    width: calc(100% - 20px); /* Adjusted width to match padding */
+    padding: 10px; /* Increased padding for better spacing */
+    margin-bottom: 15px; /* Increased margin for better spacing */
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    padding-left: 20px; /* Added padding for space */
+}
+
+.registration-container small {
+    color: red;
+    display: block;
+    margin-top: -10px;
+    margin-bottom: 15px; /* Increased margin for better spacing */
+}
+
+.registration-container button {
+    width: calc(100% - 20px); /* Adjusted width to match padding */
+    padding: 12px; /* Increased padding for better spacing */
+    background-color: #007bff; /* Changed background color for better visibility */
+    color: white; /* Changed text color for better visibility */
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    margin: 10px 0; /* Added margin to space out the button */
+}
+
+.registration-container button:disabled {
+    background-color: #eee;
+    cursor: not-allowed;
+}
+----------------
+register.ts
+
+import { Component, OnInit } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { User } from 'src/app/models/user.model';
+import { AuthService } from 'src/app/services/auth.service';
+
+@Component({
+  selector: 'app-register',
+  templateUrl: './register.component.html',
+  styleUrls: ['./register.component.css']
+})
+export class RegisterComponent implements OnInit {
+
+  registrationForm: FormGroup;
+  errorMessage: string = '';
+
+  constructor(private readonly fb: FormBuilder, private readonly authService: AuthService, private readonly router: Router) { 
+    this.registrationForm = this.fb.group({
+      username: ['', Validators.required],
+      email: ['', [Validators.required, Validators.email]],
+      password: ['', [Validators.required, Validators.pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/)]],
+      confirmPassword: ['', Validators.required],
+      mobileNumber: ['', [Validators.required, Validators.pattern(/^[0-9]*$/)]],
+      userRole: ['', Validators.required]
+    }, { validator: this.passwordMatchValidator });
+  }
+
+  ngOnInit(): void {
+  }
+
+  passwordMatchValidator(group: FormGroup) {
+    return group.get('password')?.value === group.get('confirmPassword')?.value ? null : { mismatch: true };
+  }
+
+  register(): void {
+    if (this.registrationForm.valid) {
+      const { username, email, password, mobileNumber, userRole } = this.registrationForm.value;
+      const user: User = { username, email, password, mobileNumber, userRole };
+      console.log("form submitted",user);
+      this.authService.register(user).subscribe(
+        () => {
+          alert('Registration successful');
+          this.router.navigate(['/login']);
+        },
+        (error) => {
+          console.error('Registration failed', error);
+          this.errorMessage = error.error.message || 'Registration failed';
+        }
+      );
+    } 
+  }
+}
+----------------
+treatmentrecords.html
+
+<h2>Your Closed Appointments</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Pet Name</th>
+      <th>Appointment Date</th>
+      <th>Reason</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr *ngFor="let appointment of appointments">
+      <td>{{ appointment.pet.name }}</td>
+      <td>{{ appointment.appointmentDate }}</td>
+      <td>{{ appointment.reason }}</td>
+      <td>{{ appointment.status }}</td>
+      <td>
+        <button class="feedback-btn" (click)="addFeedback(appointment.appointmentId)">Add Feedback</button>
+      </td>
+    </tr>
+  </tbody>
+</table>
+-------------------
+
+treatement.css
+
+body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background-color: #f8f8f8;
+    font-family: Arial, sans-serif;
+  }
+  
+  h2 {
+    margin-bottom: 20px;
+    color: #333;
+    text-align: center;
+  }
+  
+  table {
+    width: 80%;
+    border-collapse: collapse;
+    background-color: #ffffff;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 40px;
+  }
+  
+  thead {
+    background-color: #f2f2f2;
+  }
+  
+  th, td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }
+  
+  th {
+    background-color: #f8f8f8;
+    text-transform: uppercase;
+  }
+  
+  td {
+    text-align: left;
+    vertical-align: middle;
+  }
+  
+  .feedback-btn {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    background-color: #4CAF50; /* Green */
+    color: white;
+    margin-right: 10px;
+  }
+  
+  td button {
+    margin-right: 10px;
+  }
+  -------------
+
+treatment.ts
+
+import { Component, OnInit } from '@angular/core';
+import { Appointment } from 'src/app/models/appointment.model';
+import { AppointmentService } from 'src/app/services/appointment.service';
+import { PetService } from 'src/app/services/pet.service';
+import { Router } from '@angular/router'; // Import Router for navigation
+
+@Component({
+  selector: 'app-treatment-records',
+  templateUrl: './treatment-records.component.html',
+  styleUrls: ['./treatment-records.component.css']
+})
+export class TreatmentRecordsComponent implements OnInit {
+  appointments: Appointment[] = [];
+  userId: number;
+
+  constructor(
+    private appointmentService: AppointmentService,
+    private petService: PetService,
+    private router: Router // Add Router to constructor
+  ) {}
+
+  ngOnInit(): void {
+    // Get the logged-in user's ID from localStorage
+    const user = JSON.parse(localStorage.getItem('authUser'));
+    this.userId = user?.userId;
+
+    // Load appointments for the logged-in user
+    this.loadAppointments();
+  }
+
+  /**
+   * Load appointments for the logged-in user.
+   */
+  loadAppointments(): void {
+    this.appointmentService.getAppointmentsByUserId(this.userId).subscribe(
+      appointments => {
+        this.appointments = appointments.filter(appointment => appointment.status === 'CLOSED');
+        console.log('Loaded appointments:', this.appointments);
+      },
+      error => {
+        console.error('Error loading appointments', error);
+      }
+    );
+  }
+
+  addFeedback(appointmentId: number): void {
+    console.log('Add feedback for appointment ID:', appointmentId);
+    // Store the appointmentId in localStorage
+    localStorage.setItem('currentAppointmentId', appointmentId.toString());
+    // Navigate to the feedback form with the appointmentId
+    this.router.navigate(['/addfeedback']);
+  }
+}
+---------------
+usernav.html
+
+<nav>
+  <ul>
+    <li>
+      Pets
+      <ul class="dropdown">
+        <li><a routerLink="/viewpet">View My Pets</a></li>
+        <li><a routerLink="/addpet">Add Pets</a></li>
+      </ul>
+    </li>
+    <li>
+      Appointment
+      <ul class="dropdown">
+        <li><a routerLink="/addappointment">Add Appointment</a></li>
+        <li><a routerLink="/viewappointments">View Appointment</a></li>
+      </ul>
+    </li>
+    <li><a routerLink="/treatmentrecords">View Treatment Records</a></li>
+    <li><a routerLink="/viewmyfeedback">View My Feedback</a></li>
+  </ul>
+</nav>
+---------------------
+user-nav.css
+
+/* Basic reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+   
+  /* Container styling */
+  nav {
+    background-color: #333;
+    color: white;
+    font-family: Arial, sans-serif;
+    padding: 10px 0;
+  }
+   
+  /* Main navigation list */
+  nav ul {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+  }
+   
+  nav ul > li {
+    position: relative;
+    padding: 10px 20px;
+    cursor: pointer;
+  }
+   
+  nav ul > li > a {
+    display: block;
+    text-decoration: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 4px;
+  }
+   
+  nav ul > li > a:hover {
+    background-color: #555;
+  }
+   
+  /* Dropdown menu styling */
+  nav ul > li > ul.dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background-color: #444;
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+    border: 1px solid #ccc;
+    z-index: 1000;
+  }
+   
+  nav ul > li:hover > ul.dropdown {
+    display: block;
+  }
+   
+  nav ul > li > ul.dropdown > li {
+    padding: 10px 20px;
+  }
+   
+  nav ul > li > ul.dropdown > li > a {
+    display: block;
+    text-decoration: none;
+    color: white;
+    padding: 10px 20px;
+  }
+   
+  nav ul > li > ul.dropdown > li > a:hover {
+    background-color: #555;
+    border-radius: 4px;
+  }
+   
+  /* Style adjustments for better visibility */
+  nav ul > li > ul.dropdown > li > a {
+    white-space: nowrap; /* Prevent text wrap */
+  }
+   
+  /* Add some transition for smooth effect */
+  nav ul > li > a,
+  nav ul > li > ul.dropdown > li > a {
+    transition: background-color 0.3s ease-in-out;
+  }
+   
+  /* Additional styling for better spacing and cleaner look */
+  nav ul > li > ul.dropdown {
+    min-width: 200px; /* Ensures the dropdown is wide enough */
+  }
+   
+  nav ul > li {
+    margin-right: 20px; /* Adds spacing between main menu items */
+  }
+   
+  nav ul > li:last-child {
+    margin-right: 0; /* Removes the margin for the last item */
+  }
+   -------------------
+viewallappoitnemnts.html
+
+<h2>Your Approved and Pending Appointments</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Pet Name</th>
+      <th>Appointment Date</th>
+      <th>Reason</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr *ngFor="let appointment of appointments | statusFilter:['PENDING', 'APPROVED']">
+      <td>{{ appointment.pet.name }}</td>
+      <td>{{ appointment.appointmentDate }}</td>
+      <td>{{ appointment.reason }}</td>
+      <td>{{ appointment.status }}</td>
+      <td>
+        <button *ngIf="appointment.status === 'PENDING' || appointment.status === 'APPROVED'" class="confirm-btn" (click)="confirmAppointment(appointment.appointmentId)">Confirm</button>
+        <button *ngIf="appointment.status === 'PENDING' || appointment.status === 'APPROVED'" class="reject-btn" (click)="rejectAppointment(appointment.appointmentId)">Reject</button>
+        <button *ngIf="appointment.status === 'APPROVED'" class="close-btn" (click)="closeAppointment(appointment.appointmentId)">Close Appointment</button>
+      </td>
+    </tr>
+  </tbody>
+</table>
+------------
+viewallappointments.css
+
+body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background-color: #f8f8f8;
+    font-family: Arial, sans-serif;
+  }
+  
+  h2 {
+    margin-bottom: 20px;
+    color: #333;
+    text-align: center;
+  }
+  
+  table {
+    width: 80%;
+    border-collapse: collapse;
+    background-color: #ffffff;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 40px;
+  }
+  
+  thead {
+    background-color: #f2f2f2;
+  }
+  
+  th, td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }
+  
+  th {
+    background-color: #f8f8f8;
+    text-transform: uppercase;
+  }
+  
+  td {
+    text-align: left;
+    vertical-align: middle;
+  }
+  
+  .feedback-btn {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    background-color: #4CAF50; /* Green */
+    color: white;
+    margin-right: 10px;
+  }
+  
+  .confirm-btn {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    background-color: #28a745; /* Green */
+    color: white;
+    margin-right: 10px;
+  }
+  
+  .reject-btn {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    background-color: #dc3545; /* Red */
+    color: white;
+    margin-right: 10px;
+  }
+  
+  td button {
+    margin-right: 10px;
+  }
+  --------------
+viewallappintments.ts
+
+import { Component, OnInit } from '@angular/core';
+import { AppointmentService } from 'src/app/services/appointment.service';
+import { PetService } from 'src/app/services/pet.service';
+
+@Component({
+  selector: 'app-view-all-appointments',
+  templateUrl: './view-all-appointments.component.html',
+  styleUrls: ['./view-all-appointments.component.css']
+})
+export class ViewAllAppointmentsComponent implements OnInit {
+  appointments: any[] = [];
+
+  constructor(
+    private appointmentService: AppointmentService,
+    private petService: PetService
+  ) {}
+
+  ngOnInit(): void {
+    // Load all appointments
+    this.loadAppointments();
+  }
+
+  /**
+   * Load all appointments.
+   */
+  loadAppointments(): void {
+    this.appointmentService.getAllAppointments().subscribe(
+      appointments => {
+        this.appointments = appointments;
+        console.log('Loaded appointments:', this.appointments);
+      },
+      error => {
+        console.error('Error loading appointments', error);
+      }
+    );
+  }
+
+
+
+  confirmAppointment(appointmentId: number): void {
+    console.log('Confirm appointment ID:', appointmentId);
+    this.updateAppointmentStatus(appointmentId, 'APPROVED');
+  }
+
+  rejectAppointment(appointmentId: number): void {
+    console.log('Reject appointment ID:', appointmentId);
+    this.updateAppointmentStatus(appointmentId, 'REJECTED');
+  }
+
+  closeAppointment(appointmentId: number): void {
+    console.log('Close appointment ID:', appointmentId);
+    this.updateAppointmentStatus(appointmentId, 'CLOSED');
+  }
+
+  updateAppointmentStatus(appointmentId: number, status: string): void {
+    this.appointmentService.updateAppointmentStatus(appointmentId, status).subscribe(
+      () => {
+        console.log(`Appointment ${appointmentId} status updated to ${status}`);
+        this.loadAppointments(); // Reload appointments to reflect the status change
+      },
+      error => {
+        console.error(`Error updating appointment status to ${status}:`, error);
+      }
+    );
+  }
+}
+------------------
+viewallfeedbakc.html
+
+<h2>My Feedback Records</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Pet Owner</th>
+            <th>Pet Name</th>
+            <th>Message</th>
+            <th>Rating</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr *ngFor="let feeds of feedback">
+            <td>{{feeds.user.username}}</td>
+            <td>{{feeds.appointment.pet.name}}</td>
+            <td>{{feeds.message}}</td>
+            <td>{{feeds.rating}}</td>
+        </tr>
+        <!-- <tr>
+            <td>Sow</td>
+            <td>Simba</td>
+            <td>That was a Great Service</td>
+            <td>4</td>
+        </tr>
+        <tr>
+            <td>Pooji</td>
+            <td>Snopy</td>
+            <td>That was a Great Service awesome</td>
+            <td>5</td>
+        </tr> -->
+    </tbody>
+</table>
+
+-------------
+viewall feedback.css
+h2 {
+    font-family: Arial, sans-serif;
+    color: #333;
+    text-align: center;
+    margin-top: 20px;
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+  }
+  
+  th, td {
+    padding: 12px;
+    border: 1px solid #ddd;
+    text-align: left;
+  }
+  
+  th {
+    background-color: #f2f2f2;
+  }
+  
+  tr:nth-child(even) {
+    background-color: #f9f9f9;
+  }
+  
+  tr:hover {
+    background-color: #f1f1f1;
+  }
+  --------------
+view all feedback.ts
+
+import { Component, OnInit } from '@angular/core';
+import { Feedback } from 'src/app/models/feedback.model';
+import { FeedbackService } from 'src/app/services/feedback.service';
+
+@Component({
+  selector: 'app-view-all-feedback',
+  templateUrl: './view-all-feedback.component.html',
+  styleUrls: ['./view-all-feedback.component.css']
+})
+export class ViewAllFeedbackComponent implements OnInit {
+
+  feedback:Feedback[];
+
+  constructor(private readonly feedbackService:FeedbackService) { }
+
+  ngOnInit(): void {
+    this.getFeedback();
+  }
+
+  getFeedback(){
+    this.feedbackService.getAllFeedback().subscribe((data)=>{
+      this.feedback=data;
+      console.log(this.feedback);
+    })
+  }
+}
+-------------------
+view appointment.html
+
+
+<h2>Your Appointments</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Pet Name</th>
+      <th>Appointment Date</th>
+      <th>Reason</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr *ngFor="let appointment of appointments">
+      <td data-label="Pet Name">{{ appointment.pet.name}}</td>
+      <td data-label="Appointment Date">{{ appointment.appointmentDate }}</td>
+      <td data-label="Reason">{{ appointment.reason }}</td>
+      <td data-label="Status">{{ appointment.status }}</td>
+      <td data-label="Actions">
+        <button (click)="editAppointment(appointment)" class="edit-btn">Edit</button>
+        <button (click)="deleteAppointment(appointment.appointmentId)" class="delete-btn">Delete</button>
+      </td>
+    </tr>
+  </tbody>
+</table>
+---------------------
+view appointment.ts
+ 
+import { Component, OnInit } from '@angular/core';
+import { AppointmentService } from 'src/app/services/appointment.service';
+import { Appointment } from 'src/app/models/appointment.model';
+import { Router } from '@angular/router';
+ 
+@Component({
+  selector: 'app-view-appointments',
+  templateUrl: './view-appointments.component.html',
+  styleUrls: ['./view-appointments.component.css']
+})
+export class ViewAppointmentsComponent implements OnInit {
+  appointments: Appointment[] = [];
+  userId: number;
+ 
+  constructor(
+    private appointmentService: AppointmentService,
+    private router: Router
+  ) {}
+ 
+  ngOnInit(): void {
+    const user = JSON.parse(localStorage.getItem('authUser'));
+    this.userId = user?.userId;
+    this.loadAppointments();
+  }
+ 
+  loadAppointments(): void {
+    this.appointmentService.getAppointmentsByUserId(this.userId).subscribe(
+      appointments => {
+        this.appointments = appointments;
+        console.log('Loaded appointments:', this.appointments);
+      },
+      error => {
+        console.error('Error loading appointments', error);
+      }
+    );
+  }
+ 
+  editAppointment(appointment: Appointment): void {
+    this.router.navigate(['/addappointment', appointment.appointmentId]);
+  }
+ 
+  deleteAppointment(appointmentId: number): void {
+    this.appointmentService.deleteAppointment(appointmentId).subscribe(
+      () => {
+        this.loadAppointments();
+      },
+      error => {
+        console.error('Error deleting appointment', error);
+      }
+    );
+  }
+}
+ ------------------
+view appointment.css
+
+/* Table Styling */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  font-family: Arial, sans-serif;
+}
+ 
+thead th {
+  background-color: #4CAF50;
+  color: white;
+  padding: 10px;
+  text-align: left;
+}
+ 
+tbody td {
+  border: 1px solid #ddd;
+  padding: 10px;
+}
+ 
+/* Button Styling */
+button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-right: 5px;
+  transition: background-color 0.3s ease-in-out;
+}
+ 
+button.edit-btn {
+  background-color: #007bff; /* Blue color */
+  color: white;
+}
+ 
+button.edit-btn:hover {
+  background-color: #ffa500; /* Orange on hover */
+}
+ 
+button.delete-btn {
+  background-color: #007bff; /* Blue color */
+  color: white;
+}
+ 
+button.delete-btn:hover {
+  background-color: #ff0000; /* Red on hover */
+}
+ 
+/* Responsive Styling */
+@media (max-width: 768px) {
+  table, thead, tbody, th, td, tr {
+    display: block;
+  }
+ 
+  thead {
+    display: none;
+  }
+ 
+  tr {
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #ddd;
+  }
+ 
+  td {
+    text-align: right;
+    padding-left: 50%;
+    position: relative;
+  }
+ 
+  td::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 10px;
+    width: calc(50% - 20px);
+    text-align: left;
+    font-weight: bold;
+  }
+}
+ ----------------------
+view appointments records.html
+
+<h2>Your Closed Appointments</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Pet Owner Name</th>
+      <th>Pet Name</th>
+      <th>Appointment Date</th>
+      <th>Reason</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr *ngFor="let appointment of closedAppointments">
+      <td>{{ appointment.user.username }}</td>
+      <td>{{ appointment.pet.name }}</td>
+      <td>{{ appointment.appointmentDate }}</td>
+      <td>{{ appointment.reason }}</td>
+      <td>{{ appointment.status }}</td>
+    </tr>
+  </tbody>
+</table>
+----------------
+view appointment recoreds.css
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: #f8f8f8;
+  font-family: Arial, sans-serif;
+}
+
+h2 {
+  margin-bottom: 20px;
+  color: #333;
+  text-align: center;
+}
+
+table {
+  width: 80%;
+  border-collapse: collapse;
+  background-color: #ffffff;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 40px;
+}
+
+thead {
+  background-color: #f2f2f2;
+}
+
+th, td {
+  padding: 12px 15px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+th {
+  background-color: #f8f8f8;
+  text-transform: uppercase;
+}
+
+td {
+  text-align: left;
+  vertical-align: middle;
+}
+
+td button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-right: 10px;
+}
+
+.confirm-btn {
+  background-color: #28a745; /* Green */
+  color: white;
+}
+
+.reject-btn {
+  background-color: #dc3545; /* Red */
+  color: white;
+}
+
+.close-btn {
+  background-color: #007bff; /* Blue */
+  color: white;
+}
+----------------
+view appointemnts.ts
+
+import { Component, OnInit } from '@angular/core';
+import { AppointmentService } from 'src/app/services/appointment.service';
+import { PetService } from 'src/app/services/pet.service';
+
+@Component({
+  selector: 'app-view-appointments-records',
+  templateUrl: './view-appointments-records.component.html',
+  styleUrls: ['./view-appointments-records.component.css']
+})
+export class ViewAppointmentsRecordsComponent implements OnInit {
+  closedAppointments: any[] = [];
+
+  constructor(
+    private appointmentService: AppointmentService,
+    private petService: PetService,
+  ) {}
+
+  ngOnInit(): void {
+    // Load all closed appointments
+    this.loadClosedAppointments();
+  }
+
+  /**
+   * Load all closed appointments.
+   */
+  loadClosedAppointments(): void {
+    this.appointmentService.getAllAppointments().subscribe(
+      appointments => {
+        console.log(appointments);
+        this.closedAppointments = appointments.filter(appointment => appointment.status === 'CLOSED' || appointment.status === 'REJECTED');
+        console.log(this.closedAppointments);
+        console.log('Loaded closed appointments:', this.closedAppointments);
+      },
+      error => {
+        console.error('Error loading appointments', error);
+      }
+    );
+  }
+
+  getPetName(petId: number): string {
+    let petName = '';
+    // this.petService.getPetNameById(petId).subscribe(
+    //   name => {
+    //     petName = name;
+    //   },
+    //   error => {
+    //     console.error('Error fetching pet name', error);
+    //   }
+    // );
+    return petName;
+  }
+
+  getPetOwnerName(userId: number): string {
+    let ownerName = '';
+    // this.userService.getUserNameById(userId).subscribe(
+    //   name => {
+    //     ownerName = name;
+    //   },
+    //   error => {
+    //     console.error('Error fetching owner name', error);
+    //   }
+    // );
+    return ownerName;
+  }
+
+
+
+
+}
+-----------------
+view -feedback .html
+
+<h2>My Feedback Records</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Message</th>
+      <th>Rating</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr *ngFor="let feedback of feedbacks">
+      <td>{{ feedback.message }}</td>
+      <td>{{ feedback.rating }}</td>
+    </tr>
+  </tbody>
+</table>
+--------------
+view -feebakc.css
+
+h2 {
+    font-family: Arial, sans-serif;
+    color: #333;
+    text-align: center;
+    margin-top: 20px;
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+  }
+  
+  th, td {
+    padding: 12px;
+    border: 1px solid #ddd;
+    text-align: left;
+  }
+  
+  th {
+    background-color: #f2f2f2;
+  }
+  
+  tr:nth-child(even) {
+    background-color: #f9f9f9;
+  }
+  
+  tr:hover {
+    background-color: #f1f1f1;
+  }
+  ----------------
+view -feedback.ts
+
+import { Component, OnInit } from '@angular/core';
+import { Feedback } from 'src/app/models/feedback.model';
+import { FeedbackService } from 'src/app/services/feedback.service';
+
+@Component({
+  selector: 'app-view-my-feedback',
+  templateUrl: './view-my-feedback.component.html',
+  styleUrls: ['./view-my-feedback.component.css']
+})
+export class ViewMyFeedbackComponent implements OnInit {
+
+  userId: number;
+  feedbacks: Feedback[] = [];
+
+  constructor(private feedbackService: FeedbackService) { }
+
+  ngOnInit(): void {
+    const authUser = JSON.parse(localStorage.getItem('authUser'));
+    this.userId = authUser?.userId;
+
+    if (this.userId) {
+      this.getAllFeedbackByUserId();
+    }
+  }
+
+  getAllFeedbackByUserId(): void {
+    this.feedbackService.getAllFeedbackByUserId(this.userId).subscribe((data) => {
+      this.feedbacks = data;
+      console.log(this.feedbacks); // Verify that data is being fetched correctly
+    });
+  }
+}
+--------------
+view pet-css
+body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #F8F8F8;
+}
+ 
+table {
+    width: 80%;
+    margin: auto;
+    border-collapse: collapse;
+    background-color: #ffffff;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+ 
+h2 {
+    margin-left: 130px;
+}
+ 
+thead {
+    background-color: #f2f2f2;
+}
+ 
+th, td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+ 
+th {
+    background-color: #f8f8f8;
+}
+ 
+.edit-btn, .delete-btn {
+    padding: 8px 12px;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+ 
+.edit-btn {
+    background-color: rgb(26, 26, 211);
+    margin-left: -30px;
+}
+ 
+.delete-btn {
+    background-color: red;
+    margin-left: -150px;
+}
+ 
+.popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+ 
+.popup-content {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    text-align: center;
+}
+ 
+.popup-actions {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+ 
+.confirm-btn {
+    background-color: green;
+    color: white;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+ 
+.cancel-btn {
+    background-color: red;
+    color: white;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+
+
+---------------html
+
+<h2>List of Pets</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Species</th>
+            <th>Breed</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr *ngFor="let pet of pets">
+            <td>{{ pet.name }}</td>
+            <td>{{ pet.species }}</td>
+            <td>{{ pet.breed }}</td>
+            <td><button (click)="openEditPopup(pet)" class="edit-btn">Edit</button></td>
+            <td><button (click)="openDeletePopup(pet)" class="delete-btn">Delete</button></td>
+        </tr>
+    </tbody>
+</table>
+ 
+<!-- Edit Confirmation Popup -->
+<div *ngIf="showEditPopup" class="popup-overlay">
+    <div class="popup-content">
+        <h3>Confirm Edit</h3>
+        <p>Are you sure you want to Edit?</p>
+        <div class="popup-actions">
+            <button (click)="editPet()" class="confirm-btn">Yes</button>
+            <button (click)="showEditPopup = false" class="cancel-btn">No</button>
+        </div>
+    </div>
+</div>
+ 
+<!-- Delete Confirmation Popup -->
+<div *ngIf="showDeletePopup" class="popup-overlay">
+    <div class="popup-content">
+        <h3>Confirm Delete</h3>
+        <p>Are you sure you want to Delete?</p>
+        <div class="popup-actions">
+            <button (click)="deletePet()" class="confirm-btn">Yes</button>
+            <button (click)="showDeletePopup = false" class="cancel-btn">No</button>
+        </div>
+    </div>
+</div>
+ 
+
+
+
+view pet ts
+
+
+import { Component, OnInit } from '@angular/core';
+import { Pet } from 'src/app/models/pet.model';
+import { PetService } from 'src/app/services/pet.service';
+import { Router } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
+ 
+@Component({
+  selector: 'app-view-pet',
+  templateUrl: './view-pet.component.html',
+  styleUrls: ['./view-pet.component.css']
+})
+export class ViewPetComponent implements OnInit {
+ 
+  pets: Pet[] = [];
+  userId: number;
+  showEditPopup = false;
+  showDeletePopup = false;
+  selectedPet: Pet | undefined;
+ 
+  constructor(private petService: PetService, private router: Router) { }
+ 
+  ngOnInit(): void {
+    this.setUserIdFromLocalStorage();
+    this.getAllPetsByUserId();
+  }
+ 
+  setUserIdFromLocalStorage(): void {
+    const user = JSON.parse(localStorage.getItem('authUser')); // Assuming the user object is stored in local storage
+    if (user && user.userId) {
+      this.userId = user.userId;
+    } else {
+      console.error('Error: Invalid user or userId not found');
+    }
+  }
+ 
+  getAllPetsByUserId() {
+    this.petService.getPetsByUserId(this.userId).subscribe((data) => {
+      console.log('API response:', data);
+      if (Array.isArray(data)) {
+        this.pets = data;
+      } else {
+        console.error('Error: Response is not an array');
+      }
+    }, (error) => {
+      console.error('Error fetching pets:', error);
+    });
+  }
+ 
+  openEditPopup(pet: Pet) {
+    this.selectedPet = pet; // Store the pet object
+    this.showEditPopup = true; // Show the popup
+  }
+ 
+  editPet() {
+    if (this.selectedPet) {
+      console.log('Navigating to addpet with petId:', this.selectedPet.petId); // Debugging line
+      this.showEditPopup = false; // Close the popup
+      this.router.navigate(['/addpet', this.selectedPet.petId]);
+    } else {
+      console.error('No pet selected for editing');
+    }
+  }
+ 
+  openDeletePopup(pet: Pet) {
+    this.selectedPet = pet; // Store the pet object
+    this.showDeletePopup = true; // Show the popup
+  }
+ 
+  deletePet() {
+    if (this.selectedPet) {
+      this.petService.deletePet(this.selectedPet.petId).subscribe(
+        (response: any) => {
+          console.log(response.message);
+          this.ngOnInit();
+          console.log("deleted & navigated");
+          this.showDeletePopup = false; // Close the popup
+        },
+        (error: HttpErrorResponse) => {
+          if (error.status === 200) {
+            const responseBody = JSON.parse(error.error);
+            console.log(responseBody.message);
+            this.router.navigate(['/viewpet']);
+            console.log("deleted & navigated");
+            this.showDeletePopup = false; // Close the popup
+          } else {
+            console.error('Error deleting pet:', error);
+          }
+        }
+      );
+    } else {
+      console.error('No pet selected for deletion');
+    }
+  }
+}
+
+________________________________________
+
+authguard ts
+
+// // import { Injectable } from '@angular/core';
+// // import { BehaviorSubject, Observable } from 'rxjs';
+// // import { AuthUser } from '../models/auth-user';
+
+// // @Injectable({
+// //   providedIn: 'root'
+// // })
+// // export class UserStoreService {
+// //   private userSubject = new BehaviorSubject<AuthUser | null>(null);
+  
+// //   user$: Observable<AuthUser | null> = this.userSubject.asObservable();
+
+// //   constructor() {
+// //     const storedUser = localStorage.getItem('authUser');
+// //     if (storedUser) {
+// //       this.setUser(JSON.parse(storedUser));
+// //     }
+// //   }
+
+// //   setUser(user: AuthUser | null): void {
+// //     if (user) {
+// //       localStorage.setItem('authUser', JSON.stringify(user));
+// //     } else {
+// //       localStorage.removeItem('authUser');
+// //     }
+    
+// //     this.userSubject.next(user);
+// //   }
+
+// //   get authUser(): AuthUser | null {
+// //     return this.userSubject.getValue();
+// //   }
+
+// //   isLoggedIn(): boolean {
+// //     return !!this.authUser;
+// //   }
+// // }
+
+
+
+
+// import { Injectable } from '@angular/core';
+// import { CanActivate, ActivatedRouteSnapshot, RouterStateSnapshot, UrlTree, Router } from '@angular/router';
+// import { Observable } from 'rxjs';
+// import { AuthService } from 'src/app/services/auth.service';
+ 
+// @Injectable({
+//   providedIn: 'root'
+// })
+// export class AuthGuard implements CanActivate {
+//   constructor(private authService: AuthService, private router: Router) { }
+ 
+//   canActivate(): boolean {
+//     if (this.authService.isAuthenticated()) {
+//       const role = this.authService.getRole();
+//       if (role === 'admin') {
+//         this.router.navigate(['/adminaddplan']);
+//       } else if (role === 'user') {
+//         this.router.navigate(['/userplanform']);
+//       }
+//       return false;
+//     } else {
+//       this.router.navigate(['/login']);
+//       return false;
+//     }
+//   }
+ 
+// }
+ 
+ 
+import { Injectable } from '@angular/core';
+import { CanActivate, ActivatedRouteSnapshot, RouterStateSnapshot, UrlTree, Router } from '@angular/router';
+import { Observable } from 'rxjs';
+import { AuthService } from '../services/auth.service';
+import { UserStoreService } from '../helpers/user-store.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthGuard implements CanActivate {
+  constructor(private authservice: AuthService,
+    private router: Router,private userStore:UserStoreService) { }
+  canActivate(
+    route: ActivatedRouteSnapshot,
+    state: RouterStateSnapshot): Observable<boolean | UrlTree> | Promise<boolean | UrlTree> | boolean | UrlTree {
+      if(!this.userStore.isLoggedIn()){
+        this.router.navigate(['/login']);
+        return false;
+      }
+      const requiredRole=route.data['role'];
+      if(requiredRole){
+        const userRole=this.userStore.authUser?.role;
+        if(requiredRole === 'ADMIN' && userRole !== 'ADMIN'){
+          this.router.navigate(['/error']);
+          return false;
+        }
+        if(requiredRole === 'PETOWNER' && userRole !== 'PETOWNER'){
+          this.router.navigate(['/error']);
+          return false;
+        }
+
+      }
+      return true;
+  }
+
+
+}
+___________________________
+
+
+helpers:user-store service
+
+
+import { Injectable } from '@angular/core';
+import { BehaviorSubject, Observable } from 'rxjs';
+import { AuthUser } from '../models/auth-user';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class UserStoreService {
+  private userSubject = new BehaviorSubject<AuthUser | null>(null);
+  
+  user$: Observable<AuthUser | null> = this.userSubject.asObservable();
+
+  constructor() {
+    const storedUser = localStorage.getItem('authUser');
+    if (storedUser) {
+      this.setUser(JSON.parse(storedUser));
+    }
+  }
+
+  setUser(user: AuthUser | null): void {
+    if (user) {
+      localStorage.setItem('authUser', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('authUser');
+    }
+    
+    this.userSubject.next(user);
+  }
+
+  get authUser(): AuthUser | null {
+    return this.userSubject.getValue();
+  }
+
+  isLoggedIn(): boolean {
+    return !!this.authUser;
+  }
+}
+
+___________________
+
+auth interceptor
+
+
+import { Injectable } from '@angular/core';
+import {
+  HttpRequest,
+  HttpHandler,
+  HttpEvent,
+  HttpInterceptor
+} from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+@Injectable()
+export class AuthInterceptor implements HttpInterceptor {
+
+  constructor() {}
+
+  intercept(request: HttpRequest<unknown>, next: HttpHandler): Observable<HttpEvent<unknown>> {
+    if (request.url.includes('/login')) {
+      return next.handle(request);
+    }
+    console.log('Intercepting request:', request.url);
+    const token = sessionStorage.getItem('authToken'); // Change this line to use sessionStorage
+    console.log('Token:', token);
+    if (token) {
+      const authReq = request.clone({
+        setHeaders: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      console.log('Request with Authorization header:', authReq);
+      return next.handle(authReq);
+    }
+    return next.handle(request);
+  }
+}
+______________________________
+MODELS:
+
+Appointment Model
+/**
+ * Interface representing an appointment scheduled between a pet owner and HospitalAdmin.
+ */
+export interface Appointment {
+    /**
+     * Unique identifier for the appointment.
+     */
+    appointmentId?: number;
+
+    /**
+     * Unique identifier for the pet.
+     */
+    petId?: number;
+
+    /**
+     * Date and time of the appointment.
+     */
+    appointmentDate?: string;
+
+    /**
+     * Reason for scheduling the appointment.
+     */
+    reason?: string;
+
+    /**
+     * Unique identifier for the user (pet owner).
+     */
+    userId?: number;
+
+    /**
+     * Status of the appointment (e.g., Scheduled, Completed, Canceled).
+     */
+    status?: string;
+}
+---------------------------------------------
+
+
+auth-user
+
+export interface AuthUser {
+    userId:number;
+    userEmail:string;
+    jwtToken:string;
+    role:string;
+    name:string;
+}
+-----------------------
+
+feedback model
+
+export interface Feedback{
+    feedbackId?:number;
+    userId?:number;
+    appointmentId?:number;
+    message:string;
+    rating:number;
+}
+
+
+---------------------
+login model
+
+export interface Login {
+    email: string;
+    password: string;
+  }
+  
+
+------------------
+
+pet model
+
+
+export interface Pet{
+    petId?: number;
+    name?: string;
+    species?: string;
+    breed?: string;
+    dateOfBirth?: string;
+    userId?: number;
+    status?: string;
+}
+
+
+--------------
+
+user-model
+
+export interface User{
+    userId?:number;
+    email:string;
+    password:string;
+    username:string;
+    mobileNumber:string;
+    userRole:string;
+}
+______________________
+PIPES:
+
+import { Pipe, PipeTransform } from '@angular/core';
+
+@Pipe({
+  name: 'statusFilter'
+})
+export class StatusFilterPipe implements PipeTransform {
+
+  transform(appointments: any[], statuses: string[]): any[] {
+    if (!appointments || !statuses || statuses.length === 0) {
+      return appointments;
+    }
+    return appointments.filter(appointment => statuses.includes(appointment.status));
+  }
+
+}
+------------------------------
+
+___________________________________
+SERVICES:
+
+Apointment Service
+
+import { HttpClient } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import { Observable } from 'rxjs';
+import { Appointment } from '../models/appointment.model';
+import { Pet } from '../models/pet.model';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AppointmentService {
+
+  private apiUrl = 'https://8080-fadffcfdbddbdfbdfacfcddfbedbebb.premiumproject.examly.io/api/appointments';
+
+  constructor(private http: HttpClient) { }
+
+  /**
+   * Fetch all appointments from the server.
+   */
+  getAllAppointments(): Observable<Appointment[]> {
+    return this.http.get<Appointment[]>(this.apiUrl);
+  }
+
+  /**
+   * Fetch a specific appointment by its ID.
+   * @param id - The ID of the appointment to fetch.
+   */
+  getAppointmentById(id: number): Observable<Appointment> {
+    return this.http.get<Appointment>(`${this.apiUrl}/${id}`);
+  }
+
+  /**
+   * Fetch appointments for a specific user by their user ID.
+   * @param userId - The ID of the user whose appointments are to be fetched.
+   */
+  getAppointmentsByUserId(userId: number): Observable<Appointment[]> {
+    return this.http.get<Appointment[]>(`${this.apiUrl}/user/${userId}`);
+  }
+
+  /**
+   * Add a new appointment.
+   * @param appointment - The appointment to add.
+   */
+  addAppointment(appointment: Appointment): Observable<Appointment> {
+    return this.http.post<Appointment>(this.apiUrl, appointment);
+  }
+
+  /**
+   * Update an existing appointment.
+   * @param id - The ID of the appointment to update.
+   * @param appointment - The updated appointment data.
+   */
+  updateAppointment(id: number, appointment: Appointment): Observable<Appointment> {
+    return this.http.put<Appointment>(`${this.apiUrl}/${id}`, appointment);
+  }
+
+  /**
+   * Fetch pet details by appointment ID.
+   * @param id - The ID of the appointment.
+   */
+  getPetByAppointmentId(id: number): Observable<Pet> {
+    return this.http.get<Pet>(`${this.apiUrl}/${id}/pet`);
+  }
+
+  /**
+   * Update the status of an appointment.
+   * @param appointmentId - The ID of the appointment.
+   * @param status - The new status.
+   */
+  updateAppointmentStatus(appointmentId: number, status: string): Observable<void> {
+    console.log(status);
+    return this.http.put<void>(`${this.apiUrl}/${appointmentId}/status`,  status );
+  }
+
+  /**
+   * Delete an appointment.
+   * @param id - The ID of the appointment to delete.
+   */
+  deleteAppointment(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.apiUrl}/${id}`);
+  }
+}
+--------------------------------------
+
+auh service
+
+
+import { HttpClient } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import { BehaviorSubject, Observable } from 'rxjs';
+import { User } from '../models/user.model';
+import { map, tap } from 'rxjs/operators';
+import { Login } from '../models/login.model';
+import { UserStoreService } from '../helpers/user-store.service';
+import { jwtDecode } from 'jwt-decode';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthService {
+  private baseUrl = "https://8080-fadffcfdbddbdfbdfacfcddfbedbebb.premiumproject.examly.io/api";
+  private tokenKey = 'authToken';
+
+  constructor(private http: HttpClient, private userStore: UserStoreService) { }
+
+  register(user: User): Observable<User> {
+    return this.http.post<User>(this.baseUrl + "/register", user).pipe(
+      tap(registeredUser => {
+        console.log("User registered successfully", registeredUser);
+      })
+    );
+  }
+
+  login(credentials: Login): Observable<{ jwtToken: string }> {
+    console.log("credentials", credentials);
+    return this.http.post<{ jwtToken: string }>(this.baseUrl + "/login", credentials).pipe(
+      tap(tokenDto => {
+        console.log("Received token:", tokenDto);
+      })
+    );
+  }
+  
+
+  setToken(token: string): void {
+    sessionStorage.setItem(this.tokenKey, token);
+  }
+
+  getToken(): string | null {
+    return sessionStorage.getItem(this.tokenKey);
+  }
+
+  decodeToken(token: string): any {
+    try {
+      console.log("Decoding token:", token);
+      if (typeof token !== 'string' || !token) {
+        throw new Error("Invalid token specified: must be a string");
+      }
+      return jwtDecode(token);
+    } catch (error) {
+      console.error("Error decoding token:", error);
+      return null;
+    }
+  }
+
+  logout(): void {
+    this.userStore.setUser(null);
+    sessionStorage.removeItem(this.tokenKey);
+  }
+
+  isAuthenticated(): boolean {
+    return !!this.getToken();
+  }
+
+  isAdmin(): boolean {
+    const user = this.decodeToken(this.getToken() || '');
+    return user?.role === 'ADMIN';
+  }
+
+  getCurrentUserId(): number | null {
+    const user = this.decodeToken(this.getToken() || '');
+    return user ? user.userId : null;
+  }
+
+  getCustomerName(): string | null {
+    const user = this.decodeToken(this.getToken() || '');
+    return user?.userEmail;
+  }
+
+  getUserRole(): Observable<string | null> {
+    return this.userStore.user$.pipe(
+      map(user => user?.role || null)
+    );
+  }
+}
+
+
+------------------------------------
+feedback service
+
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { Feedback } from '../models/feedback.model';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class FeedbackService {
+ 
+  
+  private readonly baseUrl="https://8080-fadffcfdbddbdfbdfacfcddfbedbebb.premiumproject.examly.io/api/feedback";
+  constructor(private httpClient: HttpClient) { }
+
+
+  createFeedback(feedback :Feedback):Observable<Feedback>{
+    return this.httpClient.post<Feedback>(this.baseUrl,feedback);
+  }
+
+  getAllFeedback() :Observable<Feedback[]>{
+    return this.httpClient.get<Feedback[]>(this.baseUrl);
+  }
+
+  getAllFeedbackByUserId(userId: number): Observable<Feedback[]> {
+    return this.httpClient.get<Feedback[]>(`${this.baseUrl}/${userId}`);
+}
+
+  
+}
+
+ 	 
+----------------------------
+pe-service
+
+
+import { HttpClient } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import { Observable } from 'rxjs';
+import { Pet } from '../models/pet.model';
+import { User } from '../models/user.model';
+import { tap } from 'rxjs/operators';
+ 
+@Injectable({
+  providedIn: 'root'
+})
+export class PetService {
+
+  public readonly backendUrl = 'https://8080-fadffcfdbddbdfbdfacfcddfbedbebb.premiumproject.examly.io/api/pet';
+
+  constructor(private readonly http: HttpClient) { }
+
+  addPet(pet: Pet): Observable<Pet> {
+    console.log("serive",pet);
+    return this.http.post<Pet>(this.backendUrl, pet);
+  }
+
+  getAllPets(): Observable<Pet[]>{
+    return this.http.get<Pet[]>(this.backendUrl);
+  }
+
+  getPetsByIds(petIds: number[]): Observable<Pet[]> {
+    // Implement the API call to fetch pets by their IDs
+    return this.http.post<Pet[]>('/api/pets/by-ids', { petIds });
+  }
+  
+
+  updatePet(petId:number,pet: Pet): Observable<Pet> {
+    console.log("updating pet",pet);
+    console.log("updating pet",pet.petId);
+    return this.http.put<Pet>(`${this.backendUrl}/${petId}`, pet);
+  }
+
+  deletePet(petId: number): Observable <Pet> {
+    return this.http.delete<Pet>(`${this.backendUrl}/${petId}`);
+  }
+
+  getPetsByUserId(userId: number): Observable<Pet[]> {
+    return this.http.get<Pet[]>(`${this.backendUrl}/user/${userId}`).pipe(
+      tap((response) => console.log('getPetsByUserId response:', response))
+    );
+  }
+  
+
+  findById(petId: number): Observable<Pet> {
+    return this.http.get<Pet>(`${this.backendUrl}/${petId}`);
+  }
+
+}
+---------------------------
+app-routing module
+
+
+import { NgModule } from '@angular/core';
+import { Routes, RouterModule } from '@angular/router';
+import { AddPetsComponent } from './components/add-pets/add-pets.component';
+import { ViewPetComponent } from './components/view-pet/view-pet.component';
+import { LoginComponent } from './components/login/login.component';
+import { HomeComponent } from './components/home/home.component';
+import { RegisterComponent } from './components/register/register.component';
+import { ViewAllFeedbackComponent } from './components/view-all-feedback/view-all-feedback.component';
+import { AddFeedbackComponent } from './components/add-feedback/add-feedback.component';
+import { ViewAllAppointmentsComponent } from './components/view-all-appointments/view-all-appointments.component';
+import { ViewAppointmentsComponent } from './components/view-appointments/view-appointments.component';
+import { ViewAppointmentsRecordsComponent } from './components/view-appointments-records/view-appointments-records.component';
+import { TreatmentRecordsComponent } from './components/treatment-records/treatment-records.component';
+import { ViewMyFeedbackComponent } from './components/view-my-feedback/view-my-feedback.component';
+import { AddAppointmentComponent } from './components/add-appointment/add-appointment.component';
+ 
+const routes: Routes = [
+  {path:'home' , component:HomeComponent},
+  {path:'register', component:RegisterComponent},
+  {path:'feedbacklist',component:ViewAllFeedbackComponent},
+  {path:'addappointment',component:AddAppointmentComponent},
+  {path:'viewallappointmentrecords', component:ViewAppointmentsRecordsComponent},
+  {path:'addfeedback',component:AddFeedbackComponent},
+  {path:'viewmyfeedback',component:ViewMyFeedbackComponent},
+  {path:'login',component:LoginComponent},
+  {path: 'addpet', component: AddPetsComponent},
+  {path: 'viewpet', component: ViewPetComponent},
+  { path: '', redirectTo: '/home', pathMatch: 'full' },
+  {path:'treatmentrecords', component:TreatmentRecordsComponent},
+  {path:'viewappointments',component:ViewAppointmentsComponent},
+  {path:'viewallappointments',component:ViewAllAppointmentsComponent},
+  {path:'addappointment/:appointmentId', component:AddAppointmentComponent},
+  {path: 'addpet/:petId', component: AddPetsComponent},
+ 
+];
+ 
+@NgModule({
+  imports: [RouterModule.forRoot(routes)],
+  exports: [RouterModule]
+})
+export class AppRoutingModule { }
+ 
+
+
+-------------------------------------
+app module ts
+
+import { BrowserModule } from '@angular/platform-browser';
+import { NgModule } from '@angular/core';
+import { HTTP_INTERCEPTORS, HttpClientModule } from '@angular/common/http';
+import { AppRoutingModule } from './app-routing.module';
+import { AppComponent } from './app.component';
+import { AddAppointmentComponent } from './components/add-appointment/add-appointment.component';
+import { AddFeedbackComponent } from './components/add-feedback/add-feedback.component';
+import { AddPetsComponent } from './components/add-pets/add-pets.component';
+import { HomeComponent } from './components/home/home.component';
+import { LoginComponent } from './components/login/login.component';
+import { NavbarComponent } from './components/navbar/navbar.component';
+import { TreatmentRecordsComponent } from './components/treatment-records/treatment-records.component';
+import { ViewAllAppointmentsComponent } from './components/view-all-appointments/view-all-appointments.component';
+import { ViewAllFeedbackComponent } from './components/view-all-feedback/view-all-feedback.component';
+import { ViewAppointmentsComponent } from './components/view-appointments/view-appointments.component';
+import { ViewAppointmentsRecordsComponent } from './components/view-appointments-records/view-appointments-records.component';
+import { ViewMyRecordsComponent } from './components/view-my-records/view-my-records.component';
+import { ViewPetComponent } from './components/view-pet/view-pet.component';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { ErrorComponent } from './components/error/error.component';
+import { RegisterComponent } from './components/register/register.component';
+import { UserNavComponent } from './components/user-nav/user-nav.component';
+import { AdminNavComponent } from './components/admin-nav/admin-nav.component';
+import { CommonModule } from '@angular/common';
+import { ViewMyFeedbackComponent } from './components/view-my-feedback/view-my-feedback.component';
+import { StatusFilterPipe } from './pipes/status-filter.pipe'; // Import StatusFilterPipe
+import { AuthInterceptor } from './interceptor/auth.interceptor';
+
+@NgModule({
+  declarations: [
+    AppComponent,
+    AddAppointmentComponent,
+    AddFeedbackComponent,
+    AddPetsComponent,
+    HomeComponent,
+    LoginComponent,
+    NavbarComponent,
+    RegisterComponent,
+    TreatmentRecordsComponent,
+    ViewAllAppointmentsComponent,
+    ViewAllFeedbackComponent,
+    ViewAppointmentsComponent,
+    ViewAppointmentsRecordsComponent,
+    ViewMyRecordsComponent,
+    ViewPetComponent,
+    ErrorComponent,
+    UserNavComponent,
+    AdminNavComponent,
+    ViewMyFeedbackComponent,
+    StatusFilterPipe // Declare StatusFilterPipe
+  ],
+  imports: [
+    BrowserModule,
+    AppRoutingModule,
+    FormsModule,
+    ReactiveFormsModule,
+    HttpClientModule,
+    CommonModule
+  ],
+  providers: [
+    {
+      provide: HTTP_INTERCEPTORS,
+      useClass: AuthInterceptor,
+      multi: true
+    }
+  ],
+  bootstrap: [AppComponent]
+})
+export class AppModule { }
+
+
+__________________________
+app component html
+
+<app-navbar></app-navbar>
+<router-outlet></router-outlet>
+
+css
+
+.home{
+    background-color: white;
+}
+
+

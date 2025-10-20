@@ -1,0 +1,3188 @@
+CONFIG:-
+
+Application Config-
+
+package com.examly.springapp.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import com.examly.springapp.model.User;
+import com.examly.springapp.repository.UserRepo;
+
+@Configuration
+public class ApplicationConfig {
+
+    private final UserRepo userRepo;
+
+    // Constructor injection for UserRepo
+    public ApplicationConfig(UserRepo userRepo) {
+        this.userRepo = userRepo;
+    }
+
+    /**
+     * Bean definition for UserDetailsService.
+     * This method returns an anonymous implementation of UserDetailsService,
+     * which loads a user by username and throws UsernameNotFoundException if the
+     * user is not found.
+     * 
+     * @return an implementation of UserDetailsService
+     */
+    @Bean
+    public UserDetailsService userDetailsService() {
+        return new UserDetailsService() {
+            @Override
+            public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+                User user = userRepo.findByEmail(username)
+                        .orElseThrow(() -> new UsernameNotFoundException("Username not found"));
+                return new UserPrinciple(user);
+            }
+        };
+    }
+
+    /**
+     * Bean definition for PasswordEncoder.
+     * This method returns a BCryptPasswordEncoder, which is used to encode
+     * passwords.
+     * 
+     * @return a PasswordEncoder
+     */
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    /**
+     * Bean definition for AuthenticationProvider.
+     * This method returns a DaoAuthenticationProvider, which uses the
+     * UserDetailsService and PasswordEncoder
+     * to authenticate users.
+     * 
+     * @return an AuthenticationProvider
+     */
+    @Bean
+    public AuthenticationProvider authenticationProvider() {
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+        authProvider.setUserDetailsService(userDetailsService());
+        authProvider.setPasswordEncoder(passwordEncoder());
+        return authProvider;
+    }
+
+    /**
+     * Bean definition for AuthenticationManager.
+     * This method returns the AuthenticationManager from the
+     * AuthenticationConfiguration.
+     * 
+     * @param authenticationConfiguration the AuthenticationConfiguration
+     * @return an AuthenticationManager
+     * @throws Exception if an error occurs while getting the AuthenticationManager
+     */
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration)
+            throws Exception {
+        return authenticationConfiguration.getAuthenticationManager();
+    }
+}
+
+
+---------------------------
+Cors Config
+
+package com.examly.springapp.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.lang.NonNull;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+/**
+ * @Ameer Khan
+ *        Configuration class to handle Cross-Origin Resource Sharing (CORS)
+ *        settings.
+ * 
+ *        Annotated with `@Configuration` to denote it as a Spring
+ *        configuration class.
+ *        Uses `@EnableWebMvc` to enable Spring MVC features.
+ *        Implements `WebMvcConfigurer` to customize web configurations like
+ *        CORS.
+ */
+@Configuration
+@EnableWebMvc
+public class CorsConfig implements WebMvcConfigurer {
+
+    /**
+     * Configures CORS mappings for the application.
+     *
+     * @param registry the `CorsRegistry` object used to configure CORS settings.
+     *                 - Adds a global CORS mapping (`/**`) to allow requests from
+     *                 any origin.
+     *                 - Specifies allowed HTTP methods: GET, POST, PUT, OPTIONS,
+     *                 DELETE.
+     *                 - Permits all headers in the request.
+     */
+    @Override
+    public void addCorsMappings(@NonNull CorsRegistry registry) {
+        registry.addMapping("/**")
+                .allowedOrigins("https://8081-bdaddddefbdbdfbdfacfcddfbedbebb.premiumproject.examly.io/")
+                .allowedOriginPatterns("https://*")
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH")
+                .allowedHeaders("Authorization", "Content-Type", "Access-Control-Allow-Origin")
+                .allowCredentials(true);
+    }
+}
+
+------------------------
+Jwt Authentication Filter
+
+package com.examly.springapp.config;
+
+import java.io.IOException;
+
+import org.springframework.http.HttpHeaders;
+import org.springframework.lang.NonNull;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+@Component
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtUtils jwtUtils;
+    private final UserDetailsService userDetailsService;
+
+    /**
+     * Constructor to inject JwtUtils and UserDetailsService.
+     *
+     * @param jwtUtils            Utility class for JWT operations.
+     * @param userDetailsService  Service to load user details.
+     */
+    public JwtAuthenticationFilter(JwtUtils jwtUtils, UserDetailsService userDetailsService) {
+        this.jwtUtils = jwtUtils;
+        this.userDetailsService = userDetailsService;
+    }
+
+    /**
+     * Filters incoming HTTP requests to authenticate the user based on JWT token.
+     *
+     * @param request     The HTTP request.
+     * @param response    The HTTP response.
+     * @param filterChain The filter chain.
+     * @throws ServletException If an error occurs during filtering.
+     * @throws IOException      If an IO error occurs during filtering.
+     */
+    @Override
+    protected void doFilterInternal(
+            @NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain) throws ServletException, IOException {
+
+        // Retrieve the Authorization header from the HTTP request
+        final String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+
+        // If the Authorization header is missing or does not start with "Bearer ",
+        // proceed with the filter chain
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // Extract the JWT token from the Authorization header
+        final String token = authHeader.substring(7);
+        final String username = jwtUtils.extractUsername(token);
+
+        // If the username is not null and there is no authentication information in the
+        // SecurityContextHolder
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            // Load the user details using the username
+            UserDetails userDetails = this.userDetailsService.loadUserByUsername(username);
+
+            // Validate the token
+            if (jwtUtils.isValidateToken(token, userDetails)) {
+                // Create an authentication token using the user details and set it in the
+                // SecurityContextHolder
+                UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities());
+                authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(authenticationToken);
+
+                // Extract role from token and check access permissions
+                String role = jwtUtils.extractUserRole(token);
+                if (role.equals("ROLE_ADMIN") && !request.getRequestURI().startsWith("/api/appointments")
+                        && !request.getRequestURI().startsWith("/api/feedback")) {
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN, "Access Denied");
+                    return;
+                } else if (role.equals("ROLE_PETOWNER") && !request.getRequestURI().startsWith("/api/pet")
+                        && !request.getRequestURI().startsWith("/api/appointments")
+                        && !request.getRequestURI().startsWith("/api/feedback")) {
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN, "Access Denied");
+                    return;
+                } 
+            }
+        }
+
+        // Proceed with the filter chain
+        filterChain.doFilter(request, response);
+    }
+}
+-----------------------------
+Jwt Utils
+
+package com.examly.springapp.config;
+
+import java.security.Key;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Function;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Service;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+
+@Service
+public class JwtUtils {
+
+    @Value("${spring.security.jwt.secret-key}")
+    private String secretKey;
+
+    // Extract username from the token
+    public String extractUsername(String token) {
+        return extractClaim(token, Claims::getSubject);
+    }
+
+    // Extract a specific claim from the token
+    private <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+        final Claims claims = extractAllClaims(token);
+        return claimsResolver.apply(claims);
+    }
+
+    // Extract all claims from the token
+    private Claims extractAllClaims(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(getKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+    }
+
+    // Retrieve the signing key from the secret key
+    private Key getKey() {
+        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
+
+    public String generateToken(UserDetails userDetails) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("userId", ((UserPrinciple) userDetails).getId()); // Assuming UserPrinciple has `getId()`
+        claims.put("username", userDetails.getUsername());
+        claims.put("email", userDetails.getUsername());
+        claims.put("name", ((UserPrinciple) userDetails).getName()); // Adding name to the token
+        claims.put("role", ((UserPrinciple) userDetails).getRole()); // Assuming UserPrinciple has `getRole()`
+        
+        return Jwts.builder()
+            .setClaims(claims)
+            .setSubject(userDetails.getUsername())
+            .setIssuedAt(new Date(System.currentTimeMillis()))
+            .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 10)) // 10 hours expiration
+            .signWith(SignatureAlgorithm.HS256, getKey())
+            .compact();
+    }
+
+    public boolean isValidateToken(String token, UserDetails userDetails) {
+        final String username = extractUsername(token);
+        return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+    }
+
+    private boolean isTokenExpired(String token) {
+        return extractExpiration(token).before(new Date());
+    }
+
+    private Date extractExpiration(String token) {
+        return extractClaim(token, Claims::getExpiration);
+    }
+
+    public String extractUserRole(String token) {
+        return extractClaim(token, claims -> claims.get("role", String.class));
+    }
+
+    public Integer extractUserId(String token) {
+        return extractClaim(token, claims -> claims.get("userId", Integer.class));
+    }
+
+    public String extractUserEmail(String token) {
+        return extractClaim(token, claims -> claims.get("email", String.class));
+    }
+
+    public String extractUserName(String token) {
+        return extractClaim(token, claims -> claims.get("name", String.class));
+    }
+}
+-------------------------------
+Security Config
+
+package com.examly.springapp.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+/**
+ * Security configuration for the application.
+ *
+ * @author Mohammed Ameer Khan
+ *         Annotated with `@Configuration` to indicate a Spring configuration class.
+ *         `@EnableWebSecurity` to enable web security features.
+ */
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    private final AuthenticationProvider authenticationProvider;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    // Constructor injection for AuthenticationProvider and JwtAuthenticationFilter
+    public SecurityConfig(AuthenticationProvider authenticationProvider,
+                          JwtAuthenticationFilter jwtAuthenticationFilter) {
+        this.authenticationProvider = authenticationProvider;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    }
+
+    /**
+     * Configures the Spring Security filter chain.
+     *
+     * @param httpSecurity the `HttpSecurity` object used to customize security settings.
+     *                     - Disables CSRF and CORS protections.
+     *                     - Configures public access to specific API endpoints (`permitAll`).
+     *                     - Ensures authentication is required for all other endpoints.
+     * @return the configured `SecurityFilterChain` object.
+     * @throws Exception if there is an issue configuring the security chain.
+     */
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+        return httpSecurity
+                .cors()
+                .and()
+                .csrf(c -> c.disable())
+                .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers(
+                                "/api/register",
+                                "/api/login",
+                                "/swagger-ui/**", // Permit access to Swagger UI
+                                "/v3/api-docs/**", // Permit access to API docs
+                                "/swagger-resources/**", // Permit access to Swagger resources
+                                "/webjars/**")
+                        .permitAll()
+                        .requestMatchers("/api/pet/**").hasRole("PETOWNER") // Pet POST operation
+                        .requestMatchers(HttpMethod.POST, "/api/appointments").hasRole("PETOWNER") // Appointment POST operation
+                        .requestMatchers(HttpMethod.GET, "/api/appointments/user/{userId}").hasRole("PETOWNER") // Appointment GET operation
+                        .requestMatchers(HttpMethod.PUT, "/api/appointments/{appointmentId}").hasAnyRole("PETOWNER", "ADMIN") // Appointment PUT operation
+                        .requestMatchers(HttpMethod.GET, "/api/appointments/{appointmentId}").hasRole("PETOWNER") // Appointment GET operation
+                        .requestMatchers(HttpMethod.DELETE, "/api/appointments/{appointmentId}").hasRole("PETOWNER") // Appointment DELETE operation
+                        .requestMatchers(HttpMethod.GET, "/api/appointments").hasRole("ADMIN") // Appointment GET operation for ADMIN
+                        .requestMatchers(HttpMethod.GET, "/api/feedback").hasRole("ADMIN") // Feedback GET operation
+                        .requestMatchers(HttpMethod.POST, "/api/feedback").hasRole("PETOWNER") // Feedback POST operation
+                        .requestMatchers(HttpMethod.GET, "/api/feedback/user/{userId}").hasRole("PETOWNER") // Feedback GET operation
+                        .requestMatchers(HttpMethod.DELETE, "/api/feedback/{feedbackId}").hasRole("PETOWNER") // Feedback DELETE operation
+                        .requestMatchers(HttpMethod.POST, "/api/appointments/{appointmentId}/status").hasRole("ADMIN") // Feedback DELETE operation
+                         .anyRequest().authenticated())
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authenticationProvider(authenticationProvider)
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+}
+
+
+// package com.examly.springapp.config;
+
+// import org.springframework.context.annotation.Bean;
+// import org.springframework.context.annotation.Configuration;
+// import org.springframework.security.authentication.AuthenticationProvider;
+// import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+// import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+// import org.springframework.security.config.http.SessionCreationPolicy;
+// import org.springframework.security.web.SecurityFilterChain;
+// import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+// import org.springframework.web.servlet.config.annotation.CorsRegistry;
+// import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+// /**
+//  * Security configuration for the application.
+//  *
+//  * @author Mohammed Ameer Khan
+//  *         Annotated with `@Configuration` to indicate a Spring configuration
+//  *         class.
+//  *         `@EnableWebSecurity` to enable web security features.
+//  */
+// @Configuration
+// @EnableWebSecurity
+// public class SecurityConfig {
+
+//     private final AuthenticationProvider authenticationProvider;
+//     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+//     // Constructor injection for AuthenticationProvider and JwtAuthenticationFilter
+//     public SecurityConfig(AuthenticationProvider authenticationProvider,
+//             JwtAuthenticationFilter jwtAuthenticationFilter) {
+//         this.authenticationProvider = authenticationProvider;
+//         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+//     }
+
+//     /**
+//      * Configures the Spring Security filter chain.
+//      *
+//      * @param httpSecurity the `HttpSecurity` object used to customize security
+//      *                     settings.
+//      *                     - Disables CSRF and CORS protections.
+//      *                     - Configures public access to specific API endpoints
+//      *                     (`permitAll`).
+//      *                     - Ensures authentication is required for all other
+//      *                     endpoints.
+//      * @return the configured `SecurityFilterChain` object.
+//      * @throws Exception if there is an issue configuring the security chain.
+//      */
+//     @Bean
+//     public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+//         return httpSecurity
+//                 .cors()
+//                 .and()
+//                 .csrf(c -> c.disable())
+//                 .authorizeHttpRequests(authorize -> authorize
+//                         .requestMatchers(
+//                                 "/api/register",
+//                                 "/api/login",
+//                                 // "/api/feedback/**",
+//                                 // "/api/appointments/**",
+//                                 // "/api/pet/**",
+//                                 // "/api/users/**",
+//                                 // "/api/user/**",
+//                                 "/swagger-ui/**", // Permit access to Swagger UI
+//                                 "/v3/api-docs/**", // Permit access to API docs
+//                                 "/swagger-resources/**", // Permit access to Swagger resources
+//                                 "/webjars/**")
+//                         .permitAll()
+//                         .anyRequest().authenticated())
+//                 .sessionManagement(session -> session
+//                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+//                 .authenticationProvider(authenticationProvider)
+//                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+//                 .build();
+//     }
+
+
+// }
+
+----------------------------
+Swagger Api Config
+
+package com.examly.springapp.config;
+
+import static io.swagger.v3.oas.models.security.SecurityScheme.Type.HTTP;
+
+import java.util.List;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import io.swagger.v3.oas.models.Components;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Contact;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.info.License;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
+
+@Configuration
+public class SwaggerApiConfig {
+
+    /**
+     * Configures the OpenAPI for Swagger documentation.
+     *
+     * @return An OpenAPI object containing the Swagger configuration.
+     */
+    @Bean
+    public OpenAPI openAPI() {
+        return new OpenAPI()
+                .info(new Info()
+                        .title("Pet Care")
+                        .description("PetCare lets pet owners schedule veterinary appointments, while administrators can manage and approve bookings, and track treatments for a smooth pet healthcare experience")
+                        .version("1.0.0")
+                        .contact(new Contact()
+                                .name("Team 3")
+                                .email("petcare.help@yopmail.com")
+                                .url("https://example.com")) // after completing our URL
+                        .license(new License()
+                                .name("Apache 2.0")
+                                .url("https://www.apache.org/licenses/LICENSE-2.0.html")))
+                .servers(List.of(new Server().url(
+                        "https://8080-fadffcfdbddbdfbdfacfcddfbedbebb.premiumproject.examly.io/")))
+                .addSecurityItem(new SecurityRequirement()
+                        .addList("bearerAuth"))
+                .components(new Components()
+                        .addSecuritySchemes(
+                                "bearerAuth", new SecurityScheme()
+                                        .name("bearerAuth")
+                                        .type(HTTP)
+                                        .scheme("bearer")
+                                        .description("Provide the JWT token.")
+                                        .bearerFormat("JWT")));
+    }
+}
+--------------------------------------------
+User Principle 
+
+
+
+package com.examly.springapp.config;
+
+import java.util.Collection;
+import java.util.List;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+import com.examly.springapp.model.User;
+
+public class UserPrinciple implements UserDetails {
+    private final User user;
+
+    public UserPrinciple(User user) {
+        this.user = user;
+    }
+
+    public Integer getId() {
+        return user.getUserId();
+    }
+
+    public String getRole() {
+        return user.getUserRole();
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of(new SimpleGrantedAuthority("ROLE_" + user.getUserRole()));
+    }
+
+    @Override
+    public String getPassword() {
+        return user.getPassword();
+    }
+
+    @Override
+    public String getUsername() {
+        return user.getEmail();
+    }
+
+    public String getName() {
+        return user.getUsername(); // Assuming `User` class has a `getName()` method
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+---------------------------------------------
+_______________________________________________
+
+Controllers
+
+Appointment Controlller-
+
+package com.examly.springapp.controller;
+ 
+import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PostAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+ 
+import com.examly.springapp.exceptions.AppointmentExceedException;
+import com.examly.springapp.exceptions.AppointmentNotFoundException;
+import com.examly.springapp.model.Appointment;
+import com.examly.springapp.service.AppointmentService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+ 
+ 
+/**
+ * Controller class to handle appointment-related operations.
+ */
+ 
+@RestController
+@RequestMapping("/api/appointments")
+@Tag(name = "Appointments", description = "Operations pertaining to appointments in Pet Care Application")
+public class AppointmentController {
+ 
+    private final AppointmentService appointmentService;
+   
+ 
+    // Constructor injection
+    public AppointmentController(AppointmentService appointmentService) {
+        this.appointmentService = appointmentService;
+    }
+ 
+    /**
+     * HTTP POST endpoint to add a new appointment.
+     *
+     * @param appointment The appointment to be added.
+     * @return The created appointment.
+     * @throws AppointmentExceedException If the number of appointments exceeds the limit.
+     */
+    @Operation(summary = "Add a new appointment", description = "Save a new appointment for a pet")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Appointment successfully added"),
+            @ApiResponse(responseCode = "400", description = "Invalid input")
+    })
+    // @PreAuthorize("hasRole('PETOWNER')")
+    // @PostAuthorize("returnObject.user.email == authentication.name or hasRole('ADMIN')")
+    @PostMapping
+    public Appointment addAppointment(@Valid @RequestBody Appointment appointment) throws AppointmentExceedException, AppointmentNotFoundException {
+        return appointmentService.addAppointment(appointment);
+    }
+ 
+    @Operation(summary = "Get appointments by user ID", description = "Retrieve a list of appointments for a specific user")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Appointments successfully retrieved"),
+            @ApiResponse(responseCode = "404", description = "User not found")
+    })
+    // @PreAuthorize("hasRole('PETOWNER')")
+    // @PostAuthorize("returnObject.stream().allMatch(appointment -> appointment.getUser().getEmail() == authentication.name) or hasRole('ADMIN')")
+ 
+    @GetMapping("/user/{userId}")
+    public List<Appointment> getAppointmentsByUserId(@PathVariable int userId) {
+        return appointmentService.getAppointmentsByUserId(userId);
+    }
+ 
+ 
+ 
+    @Operation(summary = "Get all appointments", description = "Retrieve a list of all appointments")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Appointments successfully retrieved")
+    })
+    // @PreAuthorize("hasRole('ROLE_ADMIN')")
+    // @PostAuthorize("returnObject.user.email == authentication.name")
+    @GetMapping
+    public List<Appointment> getAllAppointments() {
+        return appointmentService.getAllAppointments();
+    }
+ 
+ 
+    /**
+     * HTTP GET endpoint to retrieve an appointment by its ID.
+     *
+     * @param appointmentId The ID of the appointment to be retrieved.
+     * @return The appointment with the specified ID.
+     * @throws AppointmentNotFoundException If the appointment is not found.
+     */
+   
+    @Operation(summary = "Get appointment by ID", description = "Retrieve details of an appointment by its ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Appointment successfully retrieved"),
+            @ApiResponse(responseCode = "404", description = "Appointment not found")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER')")
+    // @PostAuthorize("returnObject.user.email == authentication.name ")
+    @GetMapping("/{appointmentId}")
+    public Appointment getAppointmentById(@PathVariable int appointmentId) throws AppointmentNotFoundException {
+        return appointmentService.getAppointmentById(appointmentId);
+    }
+ 
+ 
+    /**
+     * HTTP PUT endpoint to update an existing appointment.
+     *
+     * @param appointmentId The ID of the appointment to be updated.
+     * @param appointment   The updated appointment details.
+     * @return The updated appointment.
+     * @throws AppointmentNotFoundException If the appointment is not found.
+     */
+ 
+    @Operation(summary = "Update an appointment", description = "Update the details of an existing appointment")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Appointment successfully updated"),
+            @ApiResponse(responseCode = "404", description = "Appointment not found"),
+            @ApiResponse(responseCode = "400", description = "Invalid input")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER') or hasRole('ROLE_ADMIN')")
+    // @PostAuthorize("returnObject.user.email == authentication.name")
+    @PutMapping("/{appointmentId}")
+   
+    public Appointment updateAppointment(@PathVariable int appointmentId, @Valid @RequestBody Appointment appointment)
+            throws AppointmentNotFoundException {
+        return appointmentService.updateAppointmentById(appointmentId, appointment);
+    }
+ 
+ 
+    /**
+     * HTTP DELETE endpoint to delete an existing appointment by its ID.
+     *
+     * @param appointmentId The ID of the appointment to be deleted.
+     * @return True if the appointment was successfully deleted.
+     * @throws AppointmentNotFoundException If the appointment is not found.
+     */
+   
+    @Operation(summary = "Delete an appointment", description = "Delete an existing appointment by its ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Appointment successfully deleted"),
+            @ApiResponse(responseCode = "404", description = "Appointment not found")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER')")
+    // @PostAuthorize("returnObject.user.email == authentication.name")
+    @DeleteMapping("/{appointmentId}")
+    public boolean deleteAppointment(@PathVariable int appointmentId) throws AppointmentNotFoundException {
+        return appointmentService.deleteAppointmentById(appointmentId);
+    }
+
+        @PutMapping("/{appointmentId}/status")
+public ResponseEntity<Void> updateAppointmentStatus(@PathVariable int appointmentId, @RequestBody String status) {
+    appointmentService.updateAppointmentStatus(appointmentId, status);
+    return ResponseEntity.ok().build();
+}
+}
+
+----------------------------------------
+Auth Controller
+package com.examly.springapp.controller;
+
+import java.util.Collections;
+import java.util.List;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.examly.springapp.exceptions.UserAlreadyExistsException;
+import com.examly.springapp.exceptions.UserNotFoundException;
+import com.examly.springapp.model.LoginDTO;
+import com.examly.springapp.model.User;
+import com.examly.springapp.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+
+/**
+ * Auth Controller class
+ * Controller acts as an intermediary between the service logic and client
+ * All HTTP request handling is done in the controller
+ */
+@RestController
+@Tag(name = "Auth", description = "Auth controller used for register and login")
+public class AuthController {
+
+    private final UserService userService;
+
+    // Constructor injection for UserService
+    public AuthController(UserService userService) {
+        this.userService = userService;
+    }
+
+    /*
+     * HTTP POST endpoint to register a new user
+     * 
+     * @RequestBody binds the HTTP request body to the User parameter
+     * Throws UserAlreadyExistsException if the user already exists
+     * Returns ResponseEntity with appropriate HTTP status and User object
+     * }
+     * 
+     * /**
+    /**
+     * Register a new user
+     * 
+     * @param user User object to be registered
+     * 
+     * @return ResponseEntity with the registered User object and appropriate status
+     * 
+     * @throws UserAlreadyExistsException if the user already exists
+     */
+    @Operation(summary = "Register a new user", description = "Endpoint to register a new user")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "User successfully registered"),
+            @ApiResponse(responseCode = "400", description = "User already exists")
+    })
+    @PostMapping("/api/register")
+    public ResponseEntity<User> registerUser(@Valid @RequestBody User user) throws UserAlreadyExistsException {
+        User registeredUser = userService.registerUser(user);
+        if (registeredUser == null) {
+            // Returning 400 status if user is already registered
+            throw new UserAlreadyExistsException("User Already Exists");
+        }
+
+        // Returning 200 status and user object if registration is successful
+        return ResponseEntity.status(200).body(registeredUser);
+    }
+
+    /*
+     * HTTP POST endpoint to log in a user
+     * 
+     * @RequestBody binds the HTTP request body to the User parameter
+     * Throws UserNotFoundException if the user is not found
+     * Returns ResponseEntity with appropriate HTTP status and LoginDTO object
+     * }
+     * 
+     * /**
+     * Login a user
+     * 
+     * @param user User object containing login details
+     * 
+     * @return ResponseEntity with the LoginDTO object and appropriate status
+     * 
+     * @throws UserNotFoundException if the user is not found
+     */
+    @Operation(summary = "Login a user", description = "Endpoint to login a user")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Login successful"),
+            @ApiResponse(responseCode = "400", description = "User not found")
+    })
+    @PostMapping("/api/login")
+    public ResponseEntity<LoginDTO> loginUser(@RequestBody User user) throws UserNotFoundException {
+        LoginDTO login = userService.loginUser(user);
+        if (login == null) {
+            // Returning 400 status if login is unsuccessful
+            throw new UserNotFoundException("User not found");
+        }
+        // Returning 200 status and login DTO if login is successful
+        return ResponseEntity.status(200).body(login);
+    }
+
+    /*
+     * HTTP GET endpoint to get all users
+     * getAllUsers method is called from the service and returns a ResponseEntity
+     * with a list of users
+     * Returns ResponseEntity with appropriate HTTP status and list of users
+     * 
+     * /**
+     * Get all users
+     * 
+     * @return ResponseEntity with the list of all users and appropriate status
+     */
+    @Operation(summary = "Get all users", description = "Endpoint to get all registered users")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Users successfully retrieved"),
+            @ApiResponse(responseCode = "400", description = "No users found")
+    })
+    @GetMapping("/api/users")
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        if (users.isEmpty()) {
+            // Returning 400 status if no users are found
+            return ResponseEntity.status(400).body(Collections.emptyList());
+        }
+        // Returning 200 status and the list of users if users are found
+        return new ResponseEntity<>(users, HttpStatus.OK);
+    }
+} 
+-----------------------------------------
+Feedback Controller
+package com.examly.springapp.controller;
+
+import java.util.List;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.access.prepost.PostAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+ 
+import com.examly.springapp.exceptions.FeedbackAlreadyExistException;
+import com.examly.springapp.model.Feedback;
+import com.examly.springapp.service.FeedbackService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+
+/**
+ * Controller class to handle feedback-related operations.
+ */
+@RestController
+@RequestMapping("api/feedback")
+@Tag(name = "Feedback", description = "Operations pertaining to feedback in Pet Care Application")
+public class FeedbackController {
+
+    private final FeedbackService feedbackService;
+
+    /**
+     * Constructor injection for FeedbackService.
+     *
+     * @param feedbackService The service to handle feedback operations.
+     */
+    public FeedbackController(FeedbackService feedbackService) {
+        this.feedbackService = feedbackService;
+    }
+
+    /**
+     * HTTP GET endpoint to retrieve all feedback.
+     *
+     * @return A list of all feedback.
+     */
+    @Operation(summary = "Get all feedback", description = "Retrieve a list of all feedback")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Feedback successfully retrieved"),
+            @ApiResponse(responseCode = "404", description = "No feedback found")
+    })
+    // @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @GetMapping
+    public ResponseEntity<List<Feedback>> getAll() {
+        List<Feedback> getAllFeedback = feedbackService.getAllFeedbacks();
+        if (getAllFeedback.isEmpty()) {
+            // Return HTTP 404 if no feedback is found
+            return ResponseEntity.status(400).build();
+        }
+        // Return HTTP 200 and the list of feedback if found
+        return ResponseEntity.status(200).body(getAllFeedback);
+    }
+
+    /**
+     * HTTP POST endpoint to add new feedback.
+     *
+     * @param feedback The feedback to be added.
+     * @return The created feedback.
+     */
+    @Operation(summary = "Add new feedback", description = "Submit new feedback")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Feedback successfully added"),
+            @ApiResponse(responseCode = "404", description = "Feedback not added")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER')")
+    @PostMapping
+    public ResponseEntity<Feedback> addFeedBack(@Valid @RequestBody Feedback feedback)throws FeedbackAlreadyExistException {
+        Feedback feedbacks = feedbackService.addFeedback(feedback);
+        if (feedbacks == null) {
+            // Return HTTP 404 if feedback addition fails
+            return ResponseEntity.status(404).body(null);
+        }
+        // Return HTTP 201 if feedback is added successfully
+        return ResponseEntity.status(201).body(feedbacks);
+    }
+
+    /**
+     * HTTP DELETE endpoint to delete feedback by its ID.
+     *
+     * @param feedbackId The ID of the feedback to be deleted.
+     * @return A message indicating the deletion status.
+     */
+    @Operation(summary = "Delete feedback", description = "Delete an existing feedback by its ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Feedback successfully deleted"),
+            @ApiResponse(responseCode = "404", description = "Feedback not found")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER')")
+    @DeleteMapping("/{feedbackId}")
+    public ResponseEntity<String> deleteFeedBack(@PathVariable int feedbackId) {
+        boolean deleteFeed = feedbackService.deleteFeedbackByFeedbackId(feedbackId);
+        if (deleteFeed) {
+            // Return HTTP 200 if feedback is deleted successfully
+            return ResponseEntity.status(200).body("Deleted FeedBack of Id " + feedbackId + " successfully.");
+        }
+        // Return HTTP 404 if feedback is not found
+        return ResponseEntity.status(404).body("Deleted FeedBack of Id " + feedbackId + " not found to delete.");
+    }
+
+    /**
+     * HTTP GET endpoint to retrieve feedback by user ID.
+     *
+     * @param userId The ID of the user whose feedback is to be retrieved.
+     * @return A list of feedback for the specified user.
+     */
+    @Operation(summary = "Get feedback by user ID", description = "Retrieve feedback by a specific user's ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Feedback successfully retrieved"),
+            @ApiResponse(responseCode = "404", description = "Feedback not found")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER')")
+    // @PostAuthorize("returnObject.stream().allMatch(feedback -> feedback.getUser().getEmail() == authentication.name) ")
+    @GetMapping("/{userId}")
+    public ResponseEntity<List<Feedback>> getFeedBackByuser(@PathVariable int userId) {
+        List<Feedback> feedback = feedbackService.getFeedbacksByUserId(userId);
+        if (feedback == null) {
+            // Return HTTP 404 if feedback for the user is not found
+            return ResponseEntity.status(404).body(null);
+        }
+        // Return HTTP 200 and the list of feedback if found
+        return ResponseEntity.status(200).body(feedback);
+    }
+}
+-------------------------------
+Pet Controller
+
+package com.examly.springapp.controller;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.examly.springapp.exceptions.PetNotFoundException;
+import com.examly.springapp.exceptions.UserNotFoundException;
+import com.examly.springapp.model.Pet;
+import com.examly.springapp.repository.UserRepo;
+import com.examly.springapp.service.PetServiceImpl;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+
+/**
+ * Controller class to handle pet-related operations.
+ */
+@RestController
+@Tag(name = "Pet", description = "Operations pertaining to pets in Pet Care Application")
+public class PetController {
+
+    private final PetServiceImpl petServiceImpl;
+    private final UserRepo userRepo;
+
+
+    /**
+     * Constructor injection for PetServiceImpl.
+     *
+     * @param petServiceImpl The service to handle pet operations.
+     */
+    public PetController(PetServiceImpl petServiceImpl,UserRepo userRepo) {
+        this.petServiceImpl = petServiceImpl;
+        this.userRepo=userRepo;
+    }
+
+    /**
+     * HTTP POST endpoint to add a new pet.
+     *
+     * @param pet The pet to be added.
+     * @return The created pet.
+     */
+    @Operation(summary = "Add a new pet", description = "Save a new pet for a user")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Pet successfully added"),
+            @ApiResponse(responseCode = "400", description = "Invalid input")
+    })
+    // @PreAuthorize("hasRole('PETOWNER')")
+    @PostMapping("api/pet")
+    public ResponseEntity<Pet> addPet(@Valid @RequestBody Pet pet)  {
+        Pet pets = petServiceImpl.addPet(pet);
+        if (pets == null) {
+            // Return HTTP 400 if pet addition fails
+            return ResponseEntity.status(400).body(null);
+        }
+        // Return HTTP 201 if pet is added successfully
+        return ResponseEntity.status(201).body(pets);
+    }
+
+    /**
+     * HTTP GET endpoint to get a pet by its ID.
+     *
+     * @param petId The ID of the pet to be retrieved.
+     * @return The pet with the specified ID.
+     */
+    @Operation(summary = "Get pet by ID", description = "Retrieve details of a pet by its ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Pet successfully retrieved"),
+            @ApiResponse(responseCode = "400", description = "Pet not found")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER')")
+    // @PostAuthorize("returnObject.body.user.email == authentication.name")
+    @GetMapping("/api/pet/{petId}")
+    public ResponseEntity<Pet> getPetById(@PathVariable int petId) throws PetNotFoundException {
+        Pet getPet = petServiceImpl.getPetById(petId);
+        if (getPet != null) {
+            // Return HTTP 200 if pet is found
+            return ResponseEntity.status(200).body(getPet);
+        }
+        throw new PetNotFoundException("Pet with petId "+petId+" not found");
+    }
+
+    /**
+     * HTTP PUT endpoint to update a pet by its ID.
+     *
+     * @param petId The ID of the pet to be updated.
+     * @param pet   The updated pet details.
+     * @return The updated pet.
+     */
+    @Operation(summary = "Update pet by ID", description = "Update the details of an existing pet by its ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Pet successfully updated"),
+            @ApiResponse(responseCode = "400", description = "Pet not found")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER')")
+    // @PostAuthorize("returnObject.body.user.email == authentication.name ")
+    @PutMapping("/api/pet/{petId}")
+    public ResponseEntity<Pet> updatePetById(@PathVariable int petId,@Valid @RequestBody Pet pet) throws PetNotFoundException {
+        Pet updatePets = petServiceImpl.updatePetById(petId, pet);
+        if (updatePets != null) {
+            // Return HTTP 200 if pet is updated successfully
+            return ResponseEntity.status(200).body(updatePets);
+        }
+        throw new PetNotFoundException("Pet with petId "+petId+" not found");
+    }
+
+    /**
+     * HTTP DELETE endpoint to delete a pet by its ID.
+     *
+     * @param petId The ID of the pet to be deleted.
+     * @return A message indicating the deletion status.
+     * @throws PetNotFoundException If the pet is not found.
+     */
+    @Operation(summary = "Delete pet by ID", description = "Delete an existing pet by its ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Pet successfully deleted"),
+            @ApiResponse(responseCode = "404", description = "Pet not found")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER')")
+    // @DeleteMapping("/api/pet/{petId}")
+    // public ResponseEntity<String> deletePetById(@PathVariable int petId) throws PetNotFoundException {
+    //     boolean flag = petServiceImpl.deletePetById(petId);
+    //     if (flag) {
+    //       // Return HTTP 200 if pet is deleted successfully
+    //         return ResponseEntity.status(200).body("Pet with id "+ petId +" deleted successfully!");
+    //     }
+    //     throw new PetNotFoundException("Pet with petId "+petId+" not found");
+    // }
+    @DeleteMapping("/api/pet/{petId}")
+    public ResponseEntity<Map<String, String>> deletePetById(@PathVariable int petId) throws PetNotFoundException {
+    boolean flag = petServiceImpl.deletePetById(petId);
+    if (flag) {
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Pet with id " + petId + " deleted successfully!");
+        return ResponseEntity.status(200).body(response);
+    }
+    throw new PetNotFoundException("Pet with petId " + petId + " not found");
+}
+
+
+    /**
+     * HTTP GET endpoint to get all pets by a user's ID.
+     *
+     * @param userId The ID of the user whose pets are to be retrieved.
+     * @return A list of pets for the specified user.
+     */
+    @Operation(summary = "Get all pets by user ID", description = "Retrieve a list of all pets for a specific user ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Pets successfully retrieved"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    // @PreAuthorize("hasRole('ROLE_PETOWNER')")
+    // @PostAuthorize("returnObject.body.stream().allMatch(pet -> pet.getUser().getEmail().equals(authentication.name))")
+    @GetMapping("/api/pet/user/{userId}")
+    public ResponseEntity<List<Pet>> getAllPetsByUserId(@PathVariable int userId) throws UserNotFoundException {
+        if(!userRepo.existsById(userId)){
+           throw new UserNotFoundException("User with UserId "+userId+" not found.");
+        }
+        List<Pet> getAllPet = petServiceImpl.getAllPetsByUserId(userId);
+        if (getAllPet != null) {
+            // Return HTTP 200 if pets are found
+            return ResponseEntity.status(200).body(getAllPet);
+        }
+        // Return HTTP 500 if fetching pets fails
+        return ResponseEntity.status(500).body(null);
+    }
+
+    @PostMapping("/pets/by-ids")
+public List<Pet> getPetsByIds(@RequestBody List<Integer> petIds) {
+    return null;
+//   return PetService.getPetsByIds(petIds);
+}
+
+}
+------------------------------------------------------
+EXCEPTIONS-
+
+AppointemntExceedException
+package com.examly.springapp.exceptions;
+
+/**
+ * Custom exception class to handle cases where appointments exceed a certain limit.
+ */
+public class AppointmentExceedException extends Exception {
+
+    /**
+     * Default constructor for AppointmentExceedException.
+     * Calls the default constructor of the superclass (Exception).
+     */
+    public AppointmentExceedException() {
+        super();
+    }
+
+    /**
+     * Parameterized constructor for AppointmentExceedException.
+     * Calls the parameterized constructor of the superclass (Exception) with the provided message.
+     * 
+     * @param message A custom error message that explains the reason for the exception.
+     */
+    public AppointmentExceedException(String message) {
+        super(message);
+    }
+}
+--------------------------------------------
+AppointmentNotFoundException
+
+package com.examly.springapp.exceptions;
+
+/**
+ * Custom exception class to handle cases where an appointment is not found.
+ */
+public class AppointmentNotFoundException extends Exception {
+
+    /**
+     * Default constructor for AppointmentNotFoundException.
+     * Calls the default constructor of the superclass (Exception).
+     */
+    public AppointmentNotFoundException() {
+        super();
+    }
+
+    /**
+     * Parameterized constructor for AppointmentNotFoundException.
+     * Calls the parameterized constructor of the superclass (Exception) with the provided message.
+     * 
+     * @param message A custom error message that explains the reason for the exception.
+     */
+    public AppointmentNotFoundException(String message) {
+        super(message);
+    }
+}
+
+
+--------------------------------------
+FeedbackAlreadyExist
+package com.examly.springapp.exceptions;
+
+public class FeedbackAlreadyExistException extends RuntimeException {
+    public FeedbackAlreadyExistException(String message) {
+        super(message);
+    }
+
+    public FeedbackAlreadyExistException() {
+      super();
+     }
+}
+
+--------------------------
+GlobalExceptionHandler
+package com.examly.springapp.exceptions;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
+
+/**
+ * Global Exception Handler class
+ * This is used to handle exceptions that are thrown in the service.
+ */
+@ControllerAdvice
+public class GlobalExceptionHandler {
+
+    /**
+     * Handles UserNotFoundException.
+     * 
+     * @param e The UserNotFoundException thrown.
+     * @return A ResponseEntity with HTTP status 404 and the exception message.
+     */
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<String> userException(UserNotFoundException e) {
+        return ResponseEntity.status(404).body(e.getMessage());
+    }
+
+    /**
+     * Handles UserAlreadyExistsException.
+     * 
+     * @param e The UserAlreadyExistsException thrown.
+     * @return A ResponseEntity with HTTP status 400 and the exception message.
+     */
+    @ExceptionHandler(UserEmailNotFoundException.class)
+    public ResponseEntity<String> userEmailNotFoundException(UserEmailNotFoundException e) {
+        return ResponseEntity.status(400).body(e.getMessage());
+    } 
+
+    // Handle UserAlreadyExistsException
+    @ExceptionHandler(UserAlreadyExistsException.class)
+    public ResponseEntity<String> userExistsException(UserAlreadyExistsException e) {
+        return ResponseEntity.status(400).body(e.getMessage());
+    }
+
+    /**
+     * Handles PetNotFoundException.
+     * 
+     * @param e The PetNotFoundException thrown.
+     * @return A ResponseEntity with HTTP status 400 and the exception message.
+     */
+     @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getAllErrors().forEach((error) -> {
+            String fieldName = ((FieldError) error).getField();
+            String errorMessage = error.getDefaultMessage();
+            errors.put(fieldName, errorMessage);
+        });
+        return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+    }
+
+    
+    // Handle UserAlreadyExistsException
+    @ExceptionHandler(PetNotFoundException.class)
+    public ResponseEntity<String> petNotFoundException(PetNotFoundException e) {
+        return ResponseEntity.status(400).body(e.getMessage());
+    }
+
+    @ExceptionHandler(AppointmentNotFoundException.class)
+    public ResponseEntity<String> AppointmentNotFoundException(AppointmentNotFoundException e) {
+        return ResponseEntity.status(400).body(e.getMessage());
+    }
+
+    @ExceptionHandler(AppointmentExceedException.class)
+    public ResponseEntity<String> AppointmentExceedException(AppointmentExceedException e) {
+        return ResponseEntity.status(400).body(e.getMessage());
+    }
+
+    // Handle FeedbackAlreadyExistsException
+    @ExceptionHandler(FeedbackAlreadyExistException.class)
+    public ResponseEntity<String> feedbackAlreadyExistException(FeedbackAlreadyExistException e) {
+        return ResponseEntity.status(400).body(e.getMessage());
+    }
+}
+
+
+---------------------------------
+PetNotFoundException
+package com.examly.springapp.exceptions;
+
+/**
+ * Custom exception class to handle cases where a pet is not found.
+ */
+public class PetNotFoundException extends Exception {
+
+    /**
+     * Default constructor for PetNotFoundException.
+     * Calls the default constructor of the superclass (Exception).
+     */
+    public PetNotFoundException() {
+        super();
+    }
+
+    /**
+     * Constructor that accepts a custom message for PetNotFoundException.
+     * Calls the parameterized constructor of the superclass (Exception) with the provided message.
+     * 
+     * @param message A custom error message that explains the reason for the exception.
+     */
+    public PetNotFoundException(String message) {
+        super(message);
+    }
+}
+
+
+------------------------------
+UserAlreadyExistException
+package com.examly.springapp.exceptions;
+
+/**
+ * Custom exception class to handle cases where a user already exists.
+ */
+public class UserAlreadyExistsException extends Exception {
+
+    /**
+     * Default constructor for UserAlreadyExistsException.
+     * Calls the default constructor of the superclass (Exception).
+     */
+    public UserAlreadyExistsException() {
+        super();
+    }
+
+    /**
+     * Constructor that accepts a custom message for UserAlreadyExistsException.
+     * Calls the parameterized constructor of the superclass (Exception) with the provided message.
+     * 
+     * @param message A custom error message that explains the reason for the exception.
+     */
+    public UserAlreadyExistsException(String message) {
+        super(message);
+    }
+}
+----------------------------------------
+UserEmailNotFoundException
+
+package com.examly.springapp.exceptions;
+
+/**
+ * Custom exception class to handle cases where a user's email is not found.
+ */
+public class UserEmailNotFoundException extends Exception {
+
+    /**
+     * Default constructor for UserEmailNotFoundException.
+     * Calls the default constructor of the superclass (Exception).
+     */
+    public UserEmailNotFoundException() {
+        super();
+    }
+
+    /**
+     * Constructor that accepts a custom message for UserEmailNotFoundException.
+     * Calls the parameterized constructor of the superclass (Exception) with the provided message.
+     * 
+     * @param message A custom error message that explains the reason for the exception.
+     */
+    public UserEmailNotFoundException(String message) {
+        super(message);
+    }
+}
+--------------------------------
+UserNotFoundException
+
+package com.examly.springapp.exceptions;
+
+/**
+ * Custom exception class to handle cases where a user is not found.
+ */
+public class UserNotFoundException extends Exception {
+
+    /**
+     * Default constructor for UserNotFoundException.
+     * Calls the default constructor of the superclass (Exception).
+     */
+    public UserNotFoundException() {
+        super();
+    }
+
+    /**
+     * Constructor that accepts a custom message for UserNotFoundException.
+     * Calls the parameterized constructor of the superclass (Exception) with the provided message.
+     * 
+     * @param message A custom error message that explains the reason for the exception.
+     */
+    public UserNotFoundException(String message) {
+        super(message);
+    }
+}
+---------------------------
+MODEL
+
+Appointemnt Model
+package com.examly.springapp.model;
+ 
+import java.time.LocalDateTime;
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.validation.constraints.Future;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+ 
+/**
+ * Entity annotation indicates that this class is mapped to a database table.
+ */
+@Entity
+public class Appointment {
+ 
+    /**
+     * Primary key for the Appointment entity.
+     * Annotated with `@Id` to specify the primary key.
+     * `@GeneratedValue` annotation is used for auto-generating the primary key value.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int appointmentId;
+ 
+    /**
+     * Fields representing appointment information.
+     */
+    @NotNull(message = "Appointment date is required")
+    @Future(message = "Appointment date must be in the future")
+    private LocalDateTime appointmentDate;
+ 
+    @NotBlank(message = "Reason is required")
+    @Size(max = 255, message = "Reason must be less than 255 characters")
+    private String reason;
+ 
+    /**
+     * Many-to-one relationship with User entity.
+     * @JoinColumn specifies the foreign key column.
+     */
+    @ManyToOne
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+ 
+    /**
+     * Many-to-one relationship with Pet entity.
+     * @JoinColumn specifies the foreign key column.
+     */
+    @ManyToOne
+    @JoinColumn(name = "pet_id", nullable = false)
+    private Pet pet;
+ 
+    @Pattern(regexp = "^(PENDING|APPROVED|REJECTED|CLOSED)$", message = "Status must be either PENDING, APPROVED,CLOSED or REJECTED")
+    @NotNull(message = "Status is required")
+    private String status = "PENDING"; // Set default status to PENDING
+ 
+    /**
+     * Default constructor for Appointment class.
+     */
+    public Appointment() {
+    }
+ 
+    /**
+     * Parameterized constructor for Appointment class.
+     *
+     * @param appointmentId    The ID of the appointment.
+     * @param appointmentDate  The date and time of the appointment.
+     * @param reason           The reason for the appointment.
+     * @param user             The user associated with the appointment.
+     * @param pet              The pet associated with the appointment.
+     * @param status           The status of the appointment.
+     */
+    public Appointment(int appointmentId, LocalDateTime appointmentDate, String reason, User user, Pet pet,
+                       String status) {
+        this.appointmentId = appointmentId;
+        this.appointmentDate = appointmentDate;
+        this.reason = reason;
+        this.user = user;
+        this.pet = pet;
+        this.status = status;
+    }
+ 
+    /**
+     * Getter and setter methods for appointmentId.
+     */
+    public int getAppointmentId() {
+        return appointmentId;
+    }
+ 
+    public void setAppointmentId(int appointmentId) {
+        this.appointmentId = appointmentId;
+    }
+ 
+    /**
+     * Getter and setter methods for appointmentDate.
+     */
+    public LocalDateTime getAppointmentDate() {
+        return appointmentDate;
+    }
+ 
+    public void setAppointmentDate(LocalDateTime appointmentDate) {
+        this.appointmentDate = appointmentDate;
+    }
+ 
+    /**
+     * Getter and setter methods for reason.
+     */
+    public String getReason() {
+        return reason;
+    }
+ 
+    public void setReason(String reason) {
+        this.reason = reason;
+    }
+ 
+    /**
+     * Getter and setter methods for user.
+     */
+    public User getUser() {
+        return user;
+    }
+ 
+    public void setUser(User user) {
+        this.user = user;
+    }
+ 
+    /**
+     * Getter and setter methods for pet.
+     */
+    public Pet getPet() {
+        return pet;
+    }
+ 
+    public void setPet(Pet pet) {
+        this.pet = pet;
+    }
+ 
+    /**
+     * Getter and setter methods for status.
+     */
+    public String getStatus() {
+        return status;
+    }
+ 
+    public void setStatus(String status) {
+        this.status = status;
+    }
+}---------------------------
+Feedback
+
+package com.examly.springapp.model;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+/**
+ * Entity annotation indicates that this class is mapped to a database table.
+ */
+@Entity
+public class Feedback {
+
+    /**
+     * Primary key for the Feedback entity.
+     * Annotated with `@Id` to specify the primary key.
+     * `@GeneratedValue` annotation is used for auto-generating the primary key value.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int feedbackId;
+
+    /**
+     * Many-to-one relationship with User entity.
+     * @JoinColumn specifies the foreign key column.
+     */
+    @ManyToOne
+    @JoinColumn(name = "user_id", nullable = false)
+    @NotNull(message = "User is required")
+    private User user;
+
+    /**
+     * Many-to-one relationship with Appointment entity.
+     * @JoinColumn specifies the foreign key column.
+     */
+    @ManyToOne
+    @JoinColumn(name = "appointment_id", nullable = false)
+    @NotNull(message = "Appointment is required")
+    private Appointment appointment;
+
+    /**
+     * Field representing feedback message.
+     */
+    @NotBlank(message = "Message is required")
+    @Size(max = 500, message = "Message must be less than 500 characters")
+    private String message;
+
+    /**
+     * Field representing feedback rating.
+     */
+    @Min(value = 1, message = "Rating must be at least 1")
+    @Max(value = 5, message = "Rating must be at most 5")
+    private int rating;
+
+    /**
+     * Default constructor for Feedback class.
+     */
+    public Feedback() {
+    }
+
+    /**
+     * Parameterized constructor for Feedback class.
+     *
+     * @param feedbackId   The ID of the feedback.
+     * @param appointment  The appointment associated with the feedback.
+     * @param message      The feedback message.
+     * @param rating       The feedback rating.
+     */
+    public Feedback(int feedbackId, Appointment appointment, String message, int rating) {
+        this.feedbackId = feedbackId;
+        this.appointment = appointment;
+        this.message = message;
+        this.rating = rating;
+    }
+
+    /**
+     * Getter and setter methods for feedbackId.
+     */
+    public int getFeedbackId() {
+        return feedbackId;
+    }
+
+    public void setFeedbackId(int feedbackId) {
+        this.feedbackId = feedbackId;
+    }
+
+    /**
+     * Getter and setter methods for user.
+     */
+    public User getUser() {
+        return user;
+    }
+
+    public void setUser(User user) {
+        this.user = user;
+    }
+
+    /**
+     * Getter and setter methods for appointment.
+     */
+    public Appointment getAppointment() {
+        return appointment;
+    }
+
+    public void setAppointment(Appointment appointment) {
+        this.appointment = appointment;
+    }
+
+    /**
+     * Getter and setter methods for message.
+     */
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    /**
+     * Getter and setter methods for rating.
+     */
+    public int getRating() {
+        return rating;
+    }
+
+    public void setRating(int rating) {
+        this.rating = rating;
+    }
+}
+---------------------------------------
+LoginDTO-
+
+package com.examly.springapp.model;
+
+/**
+ * Data Transfer Object (DTO) class representing a login response.
+ * Contains user details and JWT token.
+ */
+public class LoginDTO {
+
+    private String jwtToken;
+
+ public LoginDTO() {
+     // TODO: Implement the constructor logic if needed
+    // throw new UnsupportedOperationException("Default constructor is not supported.");
+  }
+    public String getJwtToken() {
+        return jwtToken;
+    }
+
+    /**
+     * Sets the JWT token.
+     * 
+     * @param jwtToken the JWT token to set
+     */
+    public void setJwtToken(String jwtToken) {
+        this.jwtToken = jwtToken;
+    }
+
+}
+
+-------------------------------------------------
+Pet
+
+package com.examly.springapp.model;
+
+import java.time.LocalDateTime;
+import com.fasterxml.jackson.annotation.JsonBackReference;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Past;
+import jakarta.validation.constraints.Size;
+
+/**
+ * Entity annotation indicates that this class is mapped to a database table.
+ */
+@Entity
+public class Pet {
+
+    /**
+     * Primary key for the Pet entity.
+     * Annotated with `@Id` to specify the primary key.
+     * `@GeneratedValue` annotation is used for auto-generating the primary key value.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int petId;
+
+    /**
+     * Fields representing pet information.
+     */
+    @NotBlank(message = "Name is required")
+    @Size(max = 100, message = "Name must be less than 100 characters")
+    private String name;
+
+    @NotBlank(message = "Species is required")
+    @Size(max = 100, message = "Species must be less than 100 characters")
+    private String species;
+
+    @NotBlank(message = "Breed is required")
+    @Size(max = 100, message = "Breed must be less than 100 characters")
+    private String breed;
+
+    @NotNull(message = "Date of Birth is required")
+    @Past(message = "Date of Birth must be in the past")
+    private LocalDateTime dateOfBirth;
+
+    /**
+     * Many-to-one relationship with User entity.
+     * @JoinColumn specifies the foreign key column.
+     */
+    @ManyToOne
+    @JoinColumn(name = "userId", nullable = false)
+    @JsonBackReference
+    @NotNull(message = "User is required")
+    private User user;
+
+    @NotBlank(message = "Status is required")
+    private String status = "healthy";
+
+    /**
+     * Default constructor for Pet class.
+     */
+    public Pet() {
+    }
+
+    /**
+     * Parameterized constructor for Pet class.
+     *
+     * @param petId       The ID of the pet.
+     * @param name        The name of the pet.
+     * @param species     The species of the pet.
+     * @param breed       The breed of the pet.
+     * @param dateOfBirth The date of birth of the pet.
+     * @param user        The user associated with the pet.
+     * @param status      The status of the pet.
+     */
+    public Pet(int petId, String name, String species, String breed, LocalDateTime dateOfBirth, User user, String status) {
+        this.petId = petId;
+        this.name = name;
+        this.species = species;
+        this.breed = breed;
+        this.dateOfBirth = dateOfBirth;
+        this.user = user;
+        this.status = status;
+    }
+
+    /**
+     * Getter and setter methods for petId.
+     */
+    public int getPetId() {
+        return petId;
+    }
+
+    public void setPetId(int petId) {
+        this.petId = petId;
+    }
+
+    /**
+     * Getter and setter methods for name.
+     */
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    /**
+     * Getter and setter methods for species.
+     */
+    public String getSpecies() {
+        return species;
+    }
+
+    public void setSpecies(String species) {
+        this.species = species;
+    }
+
+    /**
+     * Getter and setter methods for breed.
+     */
+    public String getBreed() {
+        return breed;
+    }
+
+    public void setBreed(String breed) {
+        this.breed = breed;
+    }
+
+    /**
+     * Getter and setter methods for dateOfBirth.
+     */
+    public LocalDateTime getDateOfBirth() {
+        return dateOfBirth;
+    }
+
+    public void setDateOfBirth(LocalDateTime dateOfBirth) {
+        this.dateOfBirth = dateOfBirth;
+    }
+
+    /**
+     * Getter and setter methods for user.
+     */
+    public User getUser() {
+        return user;
+    }
+
+    public void setUser(User user) {
+        this.user = user;
+    }
+
+    /**
+     * Getter and setter methods for status.
+     */
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+}
+
+
+------------------------------
+User
+
+package com.examly.springapp.model;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
+/**
+ * Entity annotation indicates that this class is mapped to a database table.
+ */
+@Entity
+public class User {
+
+    /**
+     * Primary key for the User entity.
+     * Annotated with `@Id` to specify the primary key.
+     * `@GeneratedValue` annotation is used for auto-generating the primary key value.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int userId;
+
+    /**
+     * Fields representing user information.
+     */
+    @NotBlank(message = "Email is required")
+    @Pattern(regexp = "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$", message = "Invalid email format, must end with .com")
+    private String email;
+
+    @NotBlank(message = "Password is required")
+    @Pattern(regexp = "^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=])(?=\\S+$).{8,}$", message = "Password must be at least 8 characters long and contain at least one digit, one lowercase letter, one uppercase letter, one special character, and no whitespace")
+    private String password;
+
+    @NotBlank(message = "Username is required")
+    @Size(max = 100, message = "Username must be less than 100 characters")
+    private String username;
+
+    @NotBlank(message = "Mobile number is required")
+    @Pattern(regexp = "^\\+?[0-9. ()-]{7,25}$", message = "Invalid mobile number")
+    private String mobileNumber;
+
+    @NotBlank(message = "User role is required")
+    @Pattern(regexp = "^(PETOWNER|ADMIN)$", message = "User role must be either PETOWNER or ADMIN")
+    private String userRole = "PETOWNER"; // Default value
+
+    /**
+     * Default constructor for User class.
+     */
+    public User() {
+    }
+
+    /**
+     * Parameterized constructor for User class.
+     *
+     * @param userId      The ID of the user.
+     * @param email       The email of the user.
+     * @param password    The password of the user.
+     * @param username    The username of the user.
+     * @param mobileNumber The mobile number of the user.
+     * @param userRole    The role of the user.
+     */
+    public User(int userId, String email, String password, String username, String mobileNumber, String userRole) {
+        this.userId = userId;
+        this.email = email;
+        this.password = password;
+        this.username = username;
+        this.mobileNumber = mobileNumber;
+        this.userRole = userRole;
+    }
+
+    /**
+     * Getter and setter methods for userId.
+     */
+    public int getUserId() {
+        return userId;
+    }
+
+    public void setUserId(int userId) {
+        this.userId = userId;
+    }
+
+    /**
+     * Getter and setter methods for email.
+     */
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    /**
+     * Getter and setter methods for password.
+     */
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    /**
+     * Getter and setter methods for username.
+     */
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    /**
+     * Getter and setter methods for mobileNumber.
+     */
+    public String getMobileNumber() {
+        return mobileNumber;
+    }
+
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber;
+    }
+
+    /**
+     * Getter and setter methods for userRole.
+     */
+    public String getUserRole() {
+        return userRole;
+    }
+
+    public void setUserRole(String userRole) {
+        this.userRole = userRole;
+    }
+}
+-------------------------------------
+
+REPO
+
+Appointment Repo
+package com.examly.springapp.repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+
+import com.examly.springapp.model.Appointment;
+
+/**
+ * Repository interface for Appointment entity.
+ * Extends JpaRepository to provide basic CRUD operations.
+ */
+public interface AppointmentRepo extends JpaRepository<Appointment, Integer> {
+
+    // Custom query to retrieve all appointments associated with a specific user ID
+    List<Appointment> findByUser_UserId(int userId);
+
+    List<Appointment> findByPetPetId(int petId);
+
+     @Query("SELECT a FROM Appointment a JOIN FETCH a.pet")
+    List<Appointment> findAllWithPet();
+
+    // Custom query to count appointments within a specific time range
+    int countByAppointmentDateBetween(LocalDateTime startDateTime, LocalDateTime endDateTime);
+
+}
+---------------------------------------
+Feedback Repo
+package com.examly.springapp.repository;
+
+import java.util.List;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+
+import com.examly.springapp.model.Feedback;
+
+/**
+ * Repository interface for Feedback entity.
+ * Extends JpaRepository to provide basic CRUD operations.
+ */
+public interface FeedbackRepo extends JpaRepository<Feedback, Integer> {
+
+    /**
+     * Custom query to retrieve feedback entries associated with a specific user ID.
+     *
+     * @param userId the ID of the user whose feedback entries are to be retrieved.
+     * @return a list of feedback entries associated with the specified user ID.
+     */
+    @Query("SELECT f FROM Feedback f WHERE f.user.userId = :userId")
+    List<Feedback> findByUser(int userId);
+
+    void deleteByAppointmentAppointmentId(int appointmentId);
+}
+-----------------------------
+Pet Repo
+package com.examly.springapp.repository;
+
+import java.util.List;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import com.examly.springapp.model.Pet;
+
+/**
+ * Repository interface for Pet entity.
+ * Extends JpaRepository to provide basic CRUD operations.
+ */
+@Repository
+public interface PetRepo extends JpaRepository<Pet, Integer> {
+
+    /**
+     * Custom query to retrieve all pets associated with a particular user by user ID.
+     *
+     * @param userId the ID of the user whose pets are to be retrieved.
+     * @return a list of pets associated with the specified user ID.
+     */
+    @Query(value = "select * from pet where user_id = ?1", nativeQuery = true)
+    List<Pet> findAllPetsByUserId(int userId);
+
+     @Query("SELECT p FROM Pet p WHERE p.petId IN :petIds")
+    List<Pet> findPetsByIds(@Param("petIds") List<Integer> petIds);
+
+    void deleteByPetId(int petId);
+}
+--------------------------------------
+User Repo-
+package com.examly.springapp.repository;
+ 
+import java.util.Optional;
+ 
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+ 
+import com.examly.springapp.model.User;
+ 
+/**
+ * Repository interface for managing `User` entity operations.
+ *
+ * Extends `JpaRepository` to inherit basic CRUD and JPA-specific operations.
+ */
+@Repository
+public interface UserRepo extends JpaRepository<User, Integer> {
+
+    /**
+     * Finds a user by their email.
+     * 
+     * @param email The email of the user to be found
+     * @return An Optional containing the found user, or an empty Optional if no user is found
+     */
+    Optional<User> findByEmail(String email);
+
+    /**
+     * Finds the ID of a user by their email.
+     * 
+     * @param email The email of the user
+     * @return The ID of the user
+     */
+    @Query("SELECT u.id FROM User u WHERE u.email = ?1")
+    int findIdByEmail(String email);
+ 
+    /**
+     * Finds the username of a user by their email.
+     *
+     * @param email The email of the user
+     * @return The username of the user
+     */
+    @Query("SELECT u.username FROM User u WHERE u.email = ?1")
+    String findNameByEmail(String email);
+
+}
+
+
+---------------------------------------------
+SERVICE:-
+
+
+AppointmentService
+package com.examly.springapp.service;
+
+import java.util.List;
+import java.util.Optional;
+
+import com.examly.springapp.exceptions.AppointmentExceedException;
+import com.examly.springapp.exceptions.AppointmentNotFoundException;
+import com.examly.springapp.model.Appointment;
+import com.examly.springapp.model.Pet;
+
+/**
+ * Service interface for handling appointment-related operations.
+ */
+public interface AppointmentService {
+
+    /**
+     * Retrieves all appointments.
+     * 
+     * @return A list of all appointments
+     */
+    List<Appointment> getAllAppointments();
+
+    /**
+     * Retrieves appointments by user ID.
+     * 
+     * @param userId The ID of the user whose appointments are to be retrieved
+     * @return A list of appointments belonging to the specified user
+     */
+    List<Appointment> getAppointmentsByUserId(int userId);
+
+    /**
+     * Adds a new appointment.
+     * 
+     * @param appointment The appointment to be added
+     * @return The added appointment
+     * @throws AppointmentExceedException 
+     * @throws AppointmentNotFoundException 
+     */
+    Appointment addAppointment(Appointment appointment) throws AppointmentExceedException, AppointmentNotFoundException;
+
+    /**
+     * Retrieves an appointment by its ID.
+     * 
+     * @param appointmentId The ID of the appointment to be retrieved
+     * @return The retrieved appointment, or null if not found
+     */
+    Appointment getAppointmentById(int appointmentId) throws AppointmentNotFoundException;
+
+    /**
+     * Updates an appointment by its ID.
+     * 
+     * @param appointmentId The ID of the appointment to be updated
+     * @param appointment The updated appointment details
+     * @return The updated appointment, or null if not found
+     * @throws AppointmentNotFoundException 
+     */
+    Appointment updateAppointmentById(int appointmentId, Appointment appointment) throws AppointmentNotFoundException;
+
+
+    /**
+     * Deletes an appointment by its ID.
+     * 
+     * @param appointmentId The ID of the appointment to be deleted
+     * @return true if the appointment was successfully deleted, false otherwise
+     * @throws AppointmentNotFoundException 
+     */
+    boolean deleteAppointmentById(int appointmentId) throws AppointmentNotFoundException;
+
+    public void updateAppointmentStatus(int appointmentId, String status);
+
+    public List<Appointment> getAllAppointmentsWithPet();
+
+    public Optional<Pet> getPetByAppointmentId(int appointmentId);
+
+}
+
+
+AppointmentServiceImpl-
+
+ package com.examly.springapp.service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.stereotype.Service;
+
+import com.examly.springapp.exceptions.AppointmentExceedException;
+import com.examly.springapp.exceptions.AppointmentNotFoundException;
+import com.examly.springapp.model.Appointment;
+import com.examly.springapp.model.Pet;
+import com.examly.springapp.model.User;
+import com.examly.springapp.repository.AppointmentRepo;
+import com.examly.springapp.repository.PetRepo;
+import com.examly.springapp.repository.UserRepo;
+
+import jakarta.transaction.Transactional;
+
+/**
+ * Implementation of the AppointmentService interface, providing methods to
+ * handle
+ * appointment-related operations such as adding, retrieving, updating, and
+ * deleting appointments.
+ */
+@Service
+public class AppointmentServiceImpl implements AppointmentService {
+
+    private final AppointmentRepo appointmentRepo;
+
+      private final UserRepo userRepo;
+    private final PetRepo petRepo;
+    private static final int MAX_APPOINTMENTS = 15;
+    /**
+     * Constructor to initialize AppointmentServiceImpl with the necessary
+     * dependency.
+     *
+     * @param appointmentRepo Repository for appointment data access operations
+     */
+    public AppointmentServiceImpl(AppointmentRepo appointmentRepo, UserRepo userRepo, PetRepo petRepo) {
+        this.appointmentRepo = appointmentRepo;
+        this.userRepo = userRepo;
+        this.petRepo = petRepo;
+    }
+
+    @Override
+    public List<Appointment> getAllAppointments() {
+        return appointmentRepo.findAll();
+    }
+
+    @Override
+    public List<Appointment> getAppointmentsByUserId(int userId) {
+        return appointmentRepo.findByUser_UserId(userId);
+    }
+
+      /**
+     * Adds a new appointment to the repository.
+     * 
+     * @param appointment The appointment to be added
+     * @return The added appointment
+     */
+    @Override
+    public Appointment addAppointment(Appointment appointment) throws AppointmentExceedException, AppointmentNotFoundException {
+        Optional<User> user = userRepo.findById(appointment.getUser().getUserId());
+        if (!user.isPresent()) {
+            throw new AppointmentNotFoundException("User not found!");
+        }
+
+        Optional<Pet> pet = petRepo.findById(appointment.getPet().getPetId());
+        if (!pet.isPresent()) {
+            throw new AppointmentNotFoundException("Pet not found!");
+        }
+
+        LocalDateTime startOfDay = appointment.getAppointmentDate().toLocalDate().atStartOfDay();
+        LocalDateTime endOfDay = startOfDay.plusDays(1).minusSeconds(1);
+
+        int totalAppointments = appointmentRepo.countByAppointmentDateBetween(startOfDay, endOfDay);
+
+        if (totalAppointments >= MAX_APPOINTMENTS) {
+            throw new AppointmentExceedException("Cannot add more than " + MAX_APPOINTMENTS + " appointments within the specified day.");
+        }
+
+        return appointmentRepo.save(appointment);
+    }
+
+       /**
+     * Retrieves an appointment by its ID.
+     * 
+     * @param appointmentId The ID of the appointment to be retrieved
+     * @return The retrieved appointment, or null if not found
+     */
+    @Override
+    public Appointment getAppointmentById(int appointmentId) throws AppointmentNotFoundException {
+        return appointmentRepo.findById(appointmentId).orElseThrow(() -> new AppointmentNotFoundException("Appointment not found !"));
+    }
+     /**
+     * Updates an appointment by its ID. If the appointment with the given ID is
+     * found, its details are updated.
+     * 
+     * @param appointmentId The ID of the appointment to be updated
+     * @param appointment   The updated appointment details
+     * @return The updated appointment, or null if not found
+     * @throws AppointmentNotFoundException
+     */
+    @Override
+    public Appointment updateAppointmentById(int appointmentId, Appointment appointment) throws AppointmentNotFoundException {
+        Optional<Appointment> existingAppointment = appointmentRepo.findById(appointmentId);
+        if (existingAppointment.isPresent()) {
+            Appointment updatedAppointment = existingAppointment.get();
+            updatedAppointment.setAppointmentDate(appointment.getAppointmentDate());
+            updatedAppointment.setReason(appointment.getReason());
+            updatedAppointment.setUser(appointment.getUser());
+            updatedAppointment.setPet(appointment.getPet());
+            updatedAppointment.setStatus(appointment.getStatus());
+            return appointmentRepo.save(updatedAppointment);
+        } else {
+            throw new AppointmentNotFoundException("Appointment not found !"); // throw an exception if appointment not
+                                                                               // found
+        }
+    }
+
+    /**
+     * Deletes an appointment by its ID. If the appointment with the given ID is
+     * found, it is deleted.
+     * 
+     * @param appointmentId The ID of the appointment to be deleted
+     * @return true if the appointment was successfully deleted, false otherwise
+     * @throws AppointmentNotFoundException
+     */
+    @Override
+    public boolean deleteAppointmentById(int appointmentId) throws AppointmentNotFoundException {
+        if (appointmentRepo.existsById(appointmentId)) {
+            appointmentRepo.deleteById(appointmentId);
+            return true;
+        } else {
+            throw new AppointmentNotFoundException("Appointment not found !"); // throw an exception if appointment not
+                                                                               // found
+        }
+    }
+
+
+    @Override
+    public void updateAppointmentStatus(int appointmentId, String status) {
+        Appointment appointment = appointmentRepo.findById(appointmentId)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid appointment ID: " + appointmentId));
+        appointment.setStatus(status);
+        appointmentRepo.save(appointment);
+    }
+
+    @Override
+    public List<Appointment> getAllAppointmentsWithPet() {
+        return appointmentRepo.findAllWithPet();
+    }
+
+    @Override
+    public Optional<Pet> getPetByAppointmentId(int appointmentId) {
+        Optional<Appointment> appointment = appointmentRepo.findById(appointmentId);
+        if (appointment.isPresent()) {
+            return Optional.of(appointment.get().getPet());
+        }
+        return Optional.empty();
+    }
+}
+
+--------------------------------------
+Feedback Service
+
+package com.examly.springapp.service;
+
+import java.util.List;
+
+import com.examly.springapp.exceptions.FeedbackAlreadyExistException;
+import com.examly.springapp.model.Feedback;
+
+/**
+ * Service interface for handling feedback-related operations.
+ */
+public interface FeedbackService {
+
+    /**
+     * Retrieves all feedbacks.
+     * 
+     * @return A list of all feedbacks
+     */
+
+    List<Feedback> getAllFeedbacks();
+
+    /**
+     * Adds new feedback.
+     * 
+     * @param feedback The feedback to be added
+     * @return The added feedback
+     */
+    Feedback addFeedback(Feedback feedback) throws FeedbackAlreadyExistException;
+
+    /**
+     * Retrieves feedbacks by user ID.
+     * 
+     * @param userId The ID of the user whose feedbacks are to be retrieved
+     * @return A list of feedbacks belonging to the specified user
+     */
+    List<Feedback> getFeedbacksByUserId(int userId);
+
+    /**
+     * Deletes feedback by feedback ID.
+     * 
+     * @param feedbackId The ID of the feedback to be deleted
+     * @return true if the feedback was successfully deleted, false otherwise
+     */
+    boolean deleteFeedbackByFeedbackId(int feedbackId);
+
+}
+
+------------------------
+Feedback Service Impl
+
+package com.examly.springapp.service;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.stereotype.Service;
+
+import com.examly.springapp.model.Appointment;
+import com.examly.springapp.model.Feedback;
+import com.examly.springapp.model.User;
+import com.examly.springapp.repository.AppointmentRepo;
+import com.examly.springapp.repository.FeedbackRepo;
+import com.examly.springapp.repository.UserRepo;
+import com.examly.springapp.exceptions.FeedbackAlreadyExistException;
+
+
+/**
+ * Implementation of the FeedbackService interface, providing methods to handle
+ * feedback-related operations such as adding, retrieving, and deleting
+ * feedbacks.
+ */
+@Service
+public class FeedbackServiceImpl implements FeedbackService {
+
+    private FeedbackRepo feedbackRepo;
+    private UserRepo userRepo;
+    private AppointmentRepo appointmentRepo;
+
+
+    /**
+     * Constructor to initialize FeedbackServiceImpl with the necessary dependency.
+     *
+     * @param feedbackRepo Repository for feedback data access operations
+     */
+    public FeedbackServiceImpl(FeedbackRepo feedbackRepo,UserRepo userRepo,AppointmentRepo appointmentRepo) {
+        this.userRepo=userRepo;
+        this.feedbackRepo = feedbackRepo;
+        this.appointmentRepo=appointmentRepo;
+    }
+
+    /**
+     * Retrieves all feedbacks from the repository.
+     * 
+     * @return A list of all feedbacks
+     */
+    @Override
+    public List<Feedback> getAllFeedbacks() {
+        return feedbackRepo.findAll();
+    }
+
+    /**
+     * Adds new feedback to the repository.
+     * 
+     * @param feedback The feedback to be added
+     * @return The added feedback
+     */
+    @Override
+    public Feedback addFeedback(Feedback feedback) throws FeedbackAlreadyExistException {
+
+             Optional<User> user = userRepo.findById(feedback.getUser().getUserId());
+                // .orElseThrow(() -> new RuntimeException("User not found"));
+        Appointment appointment = appointmentRepo.findById(feedback.getAppointment().getAppointmentId())
+                .orElseThrow(() -> new RuntimeException("Appointment not found"));
+        return feedbackRepo.save(feedback);
+    }
+
+
+    /**
+     * Retrieves feedbacks by user ID.
+     * 
+     * @param userId The ID of the user whose feedbacks are to be retrieved
+     * @return A list of feedbacks belonging to the specified user
+     */
+    @Override
+    public List<Feedback> getFeedbacksByUserId(int userId) {
+        return feedbackRepo.findByUser(userId);
+    }
+
+    /**
+     * Deletes feedback by feedback ID. If the feedback with the given ID is found,
+     * it is deleted.
+     * 
+     * @param feedbackId The ID of the feedback to be deleted
+     * @return true if the feedback was successfully deleted, false otherwise
+     */
+    @Override
+    public boolean deleteFeedbackByFeedbackId(int feedbackId) {
+        if (feedbackRepo.existsById(feedbackId)) {
+            feedbackRepo.deleteById(feedbackId);
+            return true;
+        }
+        return false;
+    }
+
+
+}
+-----------------------------------
+PetService-
+
+package com.examly.springapp.service;
+
+import java.util.List;
+
+import com.examly.springapp.exceptions.PetNotFoundException;
+import com.examly.springapp.exceptions.UserNotFoundException;
+import com.examly.springapp.model.Pet;
+
+/**
+ * Service interface for handling pet-related operations.
+ */
+public interface PetService {
+
+    /**
+     * Adds a new pet.
+     * 
+     * @param pet The pet to be added
+     * @return The added pet
+     */
+    Pet addPet(Pet pet);
+
+    /**
+     * Retrieves a pet by its ID.
+     * 
+     * @param petId The ID of the pet to be retrieved
+     * @return The retrieved pet, or null if not found
+     */
+    Pet getPetById(int petId) throws PetNotFoundException;
+
+    /**
+     * Updates a pet by its ID.
+     * 
+     * @param petId The ID of the pet to be updated
+     * @param pet   The updated pet details
+     * @return The updated pet, or null if not found
+     */
+    Pet updatePetById(int petId, Pet pet)throws PetNotFoundException;
+
+    /**
+     * Deletes a pet by its ID.
+     * 
+     * @param petId The ID of the pet to be deleted
+     * @return true if the pet was successfully deleted, false otherwise
+     * @throws PetNotFoundException 
+     */
+    boolean deletePetById(int petId) throws PetNotFoundException;
+    
+
+    /**
+     * Retrieves all pets for a specific user by the user's ID.
+     * 
+     * @param userId The ID of the user whose pets are to be retrieved
+     * @return A list of pets belonging to the specified user
+     */
+    List<Pet> getAllPetsByUserId(int userId) throws UserNotFoundException;
+
+    String getPetNameById(Integer petId);
+
+}
+
+----------------------------
+PetServiceImpl-
+package com.examly.springapp.service;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import java.util.List;
+import java.util.Optional;
+
+import com.examly.springapp.exceptions.PetNotFoundException;
+import com.examly.springapp.exceptions.UserNotFoundException;
+import com.examly.springapp.model.Appointment;
+import com.examly.springapp.model.Pet;
+import com.examly.springapp.repository.AppointmentRepo;
+import com.examly.springapp.repository.FeedbackRepo;
+import com.examly.springapp.repository.PetRepo;
+
+import jakarta.transaction.Transactional;
+
+/**
+ * Implementation of the PetService interface, providing methods to handle
+ * pet-related operations such as adding, retrieving, updating, and deleting
+ * pets.
+ */
+@Service
+public class PetServiceImpl implements PetService {
+
+    private final PetRepo petRepo;
+    private final AppointmentRepo appointmentRepo;
+    private final FeedbackRepo feedbackRepo;
+
+    public PetServiceImpl(PetRepo petRepo, AppointmentRepo appointmentRepo, FeedbackRepo feedbackRepo) {
+        this.petRepo = petRepo;
+        this.appointmentRepo = appointmentRepo;
+        this.feedbackRepo = feedbackRepo;
+    }
+
+    @Override
+    public Pet addPet(Pet pet) {
+        return petRepo.save(pet);
+    }
+
+    @Override
+    public Pet getPetById(int petId) throws PetNotFoundException {
+        return petRepo.findById(petId).orElse(null);
+    }
+
+    @Override
+    public Pet updatePetById(int petId, Pet pet) throws PetNotFoundException {
+        Pet existingPet = petRepo.findById(petId).orElse(null);
+        if (existingPet != null) {
+            existingPet.setName(pet.getName());
+            existingPet.setSpecies(pet.getSpecies());
+            existingPet.setBreed(pet.getBreed());
+            existingPet.setDateOfBirth(pet.getDateOfBirth());
+            existingPet.setUser(pet.getUser());
+            existingPet.setStatus(pet.getStatus());
+            return petRepo.save(existingPet);
+        }
+        return null;
+    }
+
+    @Override
+    @Transactional
+    public boolean deletePetById(int petId) throws PetNotFoundException {
+        Pet pet = petRepo.findById(petId).orElse(null);
+        if (pet != null) {
+            List<Appointment> appointments = appointmentRepo.findByPetPetId(petId);
+            for (Appointment appointment : appointments) {
+                feedbackRepo.deleteByAppointmentAppointmentId(appointment.getAppointmentId()); // Delete associated feedbacks
+            }
+            appointmentRepo.deleteAll(appointments); // Delete associated appointments
+            petRepo.deleteById(petId); // Delete the pet
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public List<Pet> getAllPetsByUserId(int userId) throws UserNotFoundException {
+        return petRepo.findAllPetsByUserId(userId);
+    }
+
+    @Override
+    public String getPetNameById(Integer petId) {
+        // Implement this method if necessary
+        return null;
+    }
+}
+
+
+--------------------------------
+UserService-
+
+package com.examly.springapp.service;
+
+import java.util.List;
+import com.examly.springapp.exceptions.UserAlreadyExistsException;
+import com.examly.springapp.exceptions.UserNotFoundException;
+import com.examly.springapp.model.LoginDTO;
+import com.examly.springapp.model.User;
+
+/**
+ * Service interface for handling user-related operations.
+ */
+public interface UserService {
+
+    /**
+     * Registers a new user.
+     * 
+     * @param user The user to register
+     * @return The registered user
+     * @throws UserAlreadyExistsException if a user with the same email already
+     *                                    exists
+     */
+    User registerUser(User user) throws UserAlreadyExistsException;
+
+    /**
+     * Authenticates a user and generates a JWT token.
+     * 
+     * @param user The user to authenticate
+     * @return A LoginDTO containing the JWT token
+     * @throws UserNotFoundException if the user is not found or the password is
+     *                               incorrect
+     */
+    LoginDTO loginUser(User user) throws UserNotFoundException;
+
+    /**
+     * Retrieves all users.
+     * 
+     * @return A list of all users
+     */
+    List<User> getAllUsers();
+}
+
+
+---------------
+UserServiceImpl
+
+
+package com.examly.springapp.service;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import com.examly.springapp.config.JwtUtils;
+import com.examly.springapp.exceptions.UserAlreadyExistsException;
+import com.examly.springapp.exceptions.UserNotFoundException;
+import com.examly.springapp.model.LoginDTO;
+import com.examly.springapp.model.User;
+import com.examly.springapp.repository.UserRepo;
+
+/**
+ * Implementation of the UserService interface, providing methods to handle
+ * user registration, authentication, and retrieval operations.
+ */
+@Service
+public class UserServiceImpl implements UserService {
+
+    private final UserRepo userRepo;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authManager;
+    private final JwtUtils jwtutils;
+    private final UserDetailsService userDetailsService;
+
+    /**
+     * Constructor to initialize UserServiceImpl with necessary dependencies.
+     *
+     * @param userRepo           Repository for user data access operations
+     * @param passwordEncoder    Service for encoding passwords
+     * @param authManager        Manager for handling authentication
+     * @param jwtutils           Utility class for handling JWT token operations
+     * @param userDetailsService Service for loading user-specific data
+     */
+    public UserServiceImpl(UserRepo userRepo, PasswordEncoder passwordEncoder,
+                           AuthenticationManager authManager, JwtUtils jwtutils,
+                           UserDetailsService userDetailsService) {
+        this.userRepo = userRepo;
+        this.passwordEncoder = passwordEncoder;
+        this.authManager = authManager;
+        this.jwtutils = jwtutils;
+        this.userDetailsService = userDetailsService;
+    }
+
+    /**
+     * Registers a new user in the system. The user's password is encoded before
+     * saving to the repository. Throws an exception if a user with the same
+     * email already exists.
+     *
+     * @param user The user to register
+     * @return The registered user
+     * @throws UserAlreadyExistsException if a user with the same email already
+     *                                    exists
+     */
+    @Override
+    public User registerUser(User user) throws UserAlreadyExistsException {
+        Optional<User> newUser = userRepo.findByEmail(user.getEmail());
+        if (!newUser.isPresent()) {
+            user.setPassword(passwordEncoder.encode(user.getPassword()));
+            return userRepo.save(user);
+        }
+        throw new UserAlreadyExistsException("User Already exists");
+    }
+
+    /**
+     * Authenticates a user by verifying their email and password. If the
+     * authentication is successful, a JWT token is generated and returned.
+     *
+     * @param user The user to authenticate
+     * @return A LoginDTO containing the JWT token
+     * @throws UserNotFoundException if the user is not found or the password is
+     *                               incorrect
+     */
+    @Override
+    public LoginDTO loginUser(User user) throws UserNotFoundException {
+        Authentication authentication = authManager
+                .authenticate(new UsernamePasswordAuthenticationToken(user.getEmail(), user.getPassword()));
+        if (authentication.isAuthenticated()) {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail()); // Retrieve UserDetails
+            User userEntity = userRepo.findByEmail(user.getEmail())
+                    .orElseThrow(() -> new UserNotFoundException("User not found"));
+
+            int userId = userEntity.getUserId(); // Assuming User entity has an Id field
+            String email = userEntity.getEmail();
+            String jwtToken = jwtutils.generateToken(userDetails); // Pass userId and email to generateToken
+
+            LoginDTO authUser = new LoginDTO();
+            authUser.setJwtToken(jwtToken);
+            return authUser;
+        }
+        throw new UserNotFoundException("Invalid User Name or Password");
+    }
+
+    /**
+     * Retrieves all users from the repository.
+     *
+     * @return A list of all users
+     */
+    @Override
+    public List<User> getAllUsers() {
+        return userRepo.findAll();
+    }
+}
+
+
+-------------------------------------
+Application Properties
+
+spring.application.name=pet-care
+ 
+spring.datasource.url=jdbc:mysql://localhost/appdb?createDatabaseIfNotExist=true
+spring.datasource.username=root
+spring.datasource.password=examly
+ 
+ 
+#Hibernate
+hibernate.dialect=org.hibernate.dialect.MySQLDialect
+hibernate.show_sql=true
+ 
+spring.datasource.driverClassName=com.mysql.cj.jdbc.Driver
+ 
+#SQL config
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.database-platform=org.hibernate.dialect.MySQL8Dialect
+spring.jpa.show-sql= true
+spring.jpa.properties.hibernate.format_sql=true
+ 
+#Swagger UI Config
+enable.swagger.plugin=true
+spring.mvc.pathmatch.matching-strategy=ant-path-matcher
+springdoc.swagger-ui.path=/api-docs
+spring.servlet.multipart.max-request-size=100MB
+ 
+# Logger config
+logging.file.name=logs/app.log
+logging.file.path=logs
+logging.level.root=INFO
+logging.level.org.springframework.security=DEBUG
+logging.level.org.springframework.WEB=DEBUG
+logging.level.org.examly.springapp=TRACE
+
+# JWT
+spring.security.jwt.secret-key=123456781234567812345678123456781234567812345678
+ 
+#Server config
+server.port:8080
+
+
+________________________________________
+pom.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.0.1</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.examly</groupId>
+    <artifactId>springapp</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>springapp</name>
+    <description>Demo project for Spring Boot</description>
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+       
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.0.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web-services</artifactId>
+        </dependency>
+ 
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.11.5</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.11.5</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.11.5</version>
+        </dependency>
+         <dependency>      
+             <groupId>org.projectlombok</groupId>      
+             <artifactId>lombok</artifactId>      
+            <optional>true</optional>    
+        </dependency>
+        <dependency>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-validation</artifactId>
+</dependency>
+    </dependencies>
+ 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+
+
